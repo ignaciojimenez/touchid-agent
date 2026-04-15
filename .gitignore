@@ -1,0 +1,4 @@
+touchid-agent
+*.o
+*.a
+.DS_Store
