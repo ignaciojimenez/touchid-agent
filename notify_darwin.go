@@ -8,9 +8,16 @@ import (
 	"strings"
 )
 
+func escapeForAppleScript(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "`", "")
+	s = strings.ReplaceAll(s, "$(", "")
+	return s
+}
+
 func showNotification(message string) {
-	message = strings.ReplaceAll(message, `\`, `\\`)
-	message = strings.ReplaceAll(message, `"`, `\"`)
+	message = escapeForAppleScript(message)
 	script := fmt.Sprintf(`display notification "%s" with title "touchid-agent"`, message)
 	exec.Command("osascript", "-e", script).Run()
 }
