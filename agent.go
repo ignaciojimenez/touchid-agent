@@ -28,10 +28,12 @@ var _ agent.ExtendedAgent = &Agent{}
 const connIdleTimeout = 10 * time.Minute
 
 func (a *Agent) serveConn(c net.Conn) {
+	debugf("new client connection from %s", c.RemoteAddr())
 	c.SetDeadline(time.Now().Add(connIdleTimeout))
 	if err := agent.ServeAgent(a, c); err != io.EOF {
 		log.Println("Agent client connection ended with error:", err)
 	}
+	debugf("client disconnected")
 }
 
 func (a *Agent) List() ([]*agent.Key, error) {
@@ -56,6 +58,7 @@ func (a *Agent) List() ([]*agent.Key, error) {
 			Comment: fmt.Sprintf("touchid-agent: %s", k.Label),
 		})
 	}
+	debugf("List: returning %d keys", len(agentKeys))
 	return agentKeys, nil
 }
 
@@ -115,12 +118,18 @@ func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Signat
 			continue
 		}
 
+		debugf("Sign: matched key %s (touch=%v)", k.Label, k.RequireTouch)
 		signer, err := ssh.NewSignerFromKey(k)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create signer for key %s: %w", k.Label, err)
 		}
 
-		return signer.Sign(rand.Reader, data)
+		sig, err := signer.Sign(rand.Reader, data)
+		if err != nil {
+			return nil, classifyKeychainError(k.Label, err)
+		}
+		debugf("Sign: success for key %s", k.Label)
+		return sig, nil
 	}
 
 	return nil, errors.New("no matching key found")

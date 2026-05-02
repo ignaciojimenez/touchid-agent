@@ -5,6 +5,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -30,6 +31,12 @@ func init() {
 		return
 	}
 	Version = "(unknown version)"
+}
+
+var debugLogger *log.Logger = log.New(io.Discard, "", 0)
+
+func debugf(format string, args ...any) {
+	debugLogger.Printf(format, args...)
 }
 
 func main() {
@@ -64,6 +71,7 @@ func main() {
 	listKeys := flag.Bool("list", false, "list all managed keys")
 	deleteKey := flag.String("delete", "", "delete the key with the given label")
 	deleteAll := flag.Bool("delete-all", false, "delete all managed keys")
+	verbose := flag.Bool("v", false, "enable verbose debug logging")
 
 	flag.Parse()
 
@@ -73,6 +81,9 @@ func main() {
 	}
 
 	log.SetFlags(0)
+	if *verbose {
+		debugLogger = log.New(os.Stderr, "debug: ", log.Ltime)
+	}
 
 	switch {
 	case *createKey != "":

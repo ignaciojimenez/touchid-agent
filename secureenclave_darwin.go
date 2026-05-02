@@ -23,6 +23,29 @@ import (
 
 const tagPrefix = "touchid-agent:"
 
+func classifyKeychainError(label string, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+
+	switch {
+	case strings.Contains(msg, "User interaction is not allowed"):
+		return fmt.Errorf("signing key %q failed: Keychain requires user interaction but none is possible. "+
+			"Is the screen locked or is the agent running in a non-interactive context? (%w)", label, err)
+	case strings.Contains(msg, "Authentication failed"):
+		return fmt.Errorf("signing key %q failed: Keychain authentication failed. "+
+			"Touch ID may have been denied or the Keychain is locked. (%w)", label, err)
+	case strings.Contains(msg, "not available"):
+		return fmt.Errorf("signing key %q failed: the requested security resource is not available. "+
+			"The binary may need to be code-signed with a Developer ID. (%w)", label, err)
+	case strings.Contains(msg, "User canceled"):
+		return fmt.Errorf("signing key %q: Touch ID prompt was canceled by the user. (%w)", label, err)
+	default:
+		return fmt.Errorf("signing key %q failed: %w", label, err)
+	}
+}
+
 type SEKey struct {
 	Label        string
 	Tag          string

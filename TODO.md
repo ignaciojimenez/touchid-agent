@@ -15,6 +15,9 @@
 - [x] Example hooks (GitHub upload, GitHub signing)
 - [x] Documentation: README, THREAT_MODEL, architecture, building, hooks,
       launchd, migration, git-signing
+- [x] Verbose debug logging (`-v` flag)
+- [x] Keychain error classification: actionable messages for locked
+      Keychain, denied Touch ID, missing code signing, user cancellation
 
 ## Remaining
 
@@ -39,8 +42,4 @@ Security.framework DER-encoded ECDSA path.
 
 Standard Go build formula with codesigning post-install step.
 
-### 4. Remaining hardening
 
-- Catch `errSecAuthFailed` / `errSecInteractionNotAllowed` from Keychain
-  lock and surface a clear error message.
-- `-v` flag for debug logging.

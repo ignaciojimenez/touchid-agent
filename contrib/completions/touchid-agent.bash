@@ -14,7 +14,7 @@ _touchid_agent() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # All top-level flags.
-    local _touchid_agent_flags="-l -create -no-touch -software -post-hook -list -delete -delete-all"
+    local _touchid_agent_flags="-l -create -no-touch -software -post-hook -list -delete -delete-all -v"
 
     case "${prev}" in
         -l|-create|-delete|-post-hook)
