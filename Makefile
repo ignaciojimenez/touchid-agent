@@ -1,22 +1,49 @@
 PREFIX ?= /usr/local
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
-# For Secure Enclave support, set CODESIGN_IDENTITY to a valid signing identity.
-# Use `security find-identity -v -p codesigning` to list available identities.
-# Software-backed keys (-software flag) work with ad-hoc signing.
+# CODESIGN_IDENTITY controls code signing and determines feature availability.
+#
+#   Ad-hoc (default, CODESIGN_IDENTITY=-):
+#     Supports: software keys without Touch ID (-software -no-touch)
+#     No entitlements embedded. Good for local development and testing.
+#
+#   Developer ID (CODESIGN_IDENTITY="Developer ID Application: ..."):
+#     Supports: all features (Secure Enclave, Touch ID, software keys)
+#     Embeds touchid-agent.entitlements (keychain-access-groups).
+#     Required for production builds.
+#
+# List available signing identities:
+#   security find-identity -v -p codesigning
 CODESIGN_IDENTITY ?= -
 
-.PHONY: build sign install clean
+.PHONY: build sign install install-completions clean test test-cover
 
 build:
 	go build -ldflags "-X main.Version=$(VERSION)" -o touchid-agent .
 
 sign: build
-	codesign -s "$(CODESIGN_IDENTITY)" -f touchid-agent
+ifeq ($(CODESIGN_IDENTITY),-)
+	codesign -s "-" -f touchid-agent
+else
+	codesign -s "$(CODESIGN_IDENTITY)" --entitlements touchid-agent.entitlements -f touchid-agent
+endif
 
 install: build sign
 	install -d $(PREFIX)/bin
 	install -m 755 touchid-agent $(PREFIX)/bin/touchid-agent
 
+install-completions:
+	install -d $(PREFIX)/etc/bash_completion.d
+	install -m 644 contrib/completions/touchid-agent.bash $(PREFIX)/etc/bash_completion.d/touchid-agent
+	install -d $(PREFIX)/share/zsh/site-functions
+	install -m 644 contrib/completions/touchid-agent.zsh $(PREFIX)/share/zsh/site-functions/_touchid-agent
+
+test:
+	go test -v -race -count=1 ./...
+
+test-cover:
+	go test -v -race -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+
 clean:
-	rm -f touchid-agent
+	rm -f touchid-agent coverage.out coverage.html

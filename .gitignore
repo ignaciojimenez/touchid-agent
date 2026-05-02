@@ -2,3 +2,5 @@ touchid-agent
 *.o
 *.a
 .DS_Store
+coverage.out
+coverage.html
