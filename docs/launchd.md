@@ -7,8 +7,8 @@ cp contrib/plist/touchid-agent.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/touchid-agent.plist
 ```
 
-The service runs at login, restarts on failure, and logs to
-`/tmp/.touchid-agent.log`.
+Edit the plist to replace `CHANGEME` with your username. The service runs
+at login, restarts on failure, and logs to `~/Library/Logs/touchid-agent.log`.
 
 To point SSH at the agent, add to `~/.zshrc`:
 

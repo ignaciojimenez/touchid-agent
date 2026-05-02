@@ -52,7 +52,7 @@ func TestDebugf_AgentListLogs(t *testing.T) {
 	}
 
 	got := buf.String()
-	if !strings.Contains(got, "List: returning 1 keys") {
+	if !strings.Contains(got, "List: returning 1 key(s)") {
 		t.Errorf("expected List debug log, got: %s", got)
 	}
 }

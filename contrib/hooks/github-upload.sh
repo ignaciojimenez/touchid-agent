@@ -5,7 +5,7 @@ set -euo pipefail
 # Requires: gh CLI (https://cli.github.com), authenticated via `gh auth login`.
 #
 # Usage:
-#   touchid-agent -create ssh --post-hook contrib/hooks/github-upload.sh
+#   touchid-agent -create ssh -post-hook contrib/hooks/github-upload.sh
 
 if ! command -v gh &>/dev/null; then
     echo "Error: gh CLI not found. Install from https://cli.github.com" >&2

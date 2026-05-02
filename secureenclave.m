@@ -271,7 +271,8 @@ int se_delete_all_keys(const char *tag_prefix, char **error_out) {
             return 0;
         }
 
-        char *line = strtok(list, "\n");
+        char *saveptr = NULL;
+        char *line = strtok_r(list, "\n", &saveptr);
         while (line) {
             char *tab = strchr(line, '\t');
             if (tab) {
@@ -280,7 +281,7 @@ int se_delete_all_keys(const char *tag_prefix, char **error_out) {
                 se_delete_key(line, &err);
                 if (err) free(err);
             }
-            line = strtok(NULL, "\n");
+            line = strtok_r(NULL, "\n", &saveptr);
         }
 
         free(list);

@@ -15,8 +15,8 @@
   <key>ProcessType</key>
   <string>Background</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/.touchid-agent.log</string>
+  <string>/Users/CHANGEME/Library/Logs/touchid-agent.log</string>
   <key>StandardOutPath</key>
-  <string>/tmp/.touchid-agent.log</string>
+  <string>/Users/CHANGEME/Library/Logs/touchid-agent.log</string>
 </dict>
 </plist>

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 )
 
 type HookEnv struct {
@@ -27,18 +28,11 @@ func runPostHook(hookCmd string, env HookEnv) error {
 		fmt.Sprintf("TOUCHID_AGENT_LABEL=%s", env.Label),
 		fmt.Sprintf("TOUCHID_AGENT_PUBKEY=%s", env.PubKey),
 		fmt.Sprintf("TOUCHID_AGENT_PUBKEY_FILE=%s", env.PubKeyFile),
-		fmt.Sprintf("TOUCHID_AGENT_TOUCH_REQUIRED=%s", boolStr(env.TouchRequired)),
+		fmt.Sprintf("TOUCHID_AGENT_TOUCH_REQUIRED=%s", strconv.FormatBool(env.TouchRequired)),
 	)
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("post-create hook failed: %w", err)
 	}
 	return nil
-}
-
-func boolStr(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
 }

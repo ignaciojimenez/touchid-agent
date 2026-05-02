@@ -82,12 +82,16 @@ func TestParseTag_MissingPolicy(t *testing.T) {
 }
 
 func TestParseTag_EmptyLabel(t *testing.T) {
-	label, _, ok := parseTag("touchid-agent:t:")
+	// parseTag is a low-level parser; label validation is handled by validateLabel.
+	label, touch, ok := parseTag("touchid-agent:t:")
 	if !ok {
-		t.Skip("parseTag allows empty label (currently valid)")
+		t.Fatal("parseTag should accept empty label at the parse level")
 	}
 	if label != "" {
 		t.Errorf("expected empty label, got %q", label)
+	}
+	if !touch {
+		t.Error("expected touch=true")
 	}
 }
 

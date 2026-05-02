@@ -58,7 +58,7 @@ func (a *Agent) List() ([]*agent.Key, error) {
 			Comment: fmt.Sprintf("touchid-agent: %s", k.Label),
 		})
 	}
-	debugf("List: returning %d keys", len(agentKeys))
+	debugf("List: returning %d key(s)", len(agentKeys))
 	return agentKeys, nil
 }
 
@@ -87,6 +87,8 @@ func (a *Agent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
 	return a.SignWithFlags(key, data, 0)
 }
 
+// SignatureFlags control RSA algorithm negotiation (SHA-256/512) and are
+// irrelevant for ECDSA P-256 which always uses SHA-256. Safe to ignore.
 func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

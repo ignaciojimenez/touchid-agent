@@ -6,7 +6,7 @@ set -euo pipefail
 # Requires: gh CLI (https://cli.github.com), authenticated via `gh auth login`.
 #
 # Usage:
-#   touchid-agent -create git -no-touch --post-hook contrib/hooks/github-signing.sh
+#   touchid-agent -create git -no-touch -post-hook contrib/hooks/github-signing.sh
 
 if ! command -v gh &>/dev/null; then
     echo "Error: gh CLI not found. Install from https://cli.github.com" >&2

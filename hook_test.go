@@ -125,11 +125,4 @@ func TestRunPostHook_NotExecutable(t *testing.T) {
 	}
 }
 
-func TestBoolStr(t *testing.T) {
-	if boolStr(true) != "true" {
-		t.Error("boolStr(true) should return \"true\"")
-	}
-	if boolStr(false) != "false" {
-		t.Error("boolStr(false) should return \"false\"")
-	}
-}
+

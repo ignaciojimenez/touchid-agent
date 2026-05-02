@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -153,19 +154,7 @@ func cmdCreate(label string, requireTouch bool, useSE bool, postHookCmd string) 
 	fmt.Printf("Key created: %s (Touch ID required: %s)\n\n", label, touchStr)
 	fmt.Printf("SSH public key:\n%s touchid-agent:%s\n", pubKeyStr, label)
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	sshDir := filepath.Join(home, ".ssh")
-	os.MkdirAll(sshDir, 0700)
-	pubFile := filepath.Join(sshDir, fmt.Sprintf("touchid-agent-%s.pub", label))
-	content := fmt.Sprintf("%s touchid-agent:%s\n", pubKeyStr, label)
-	if err := os.WriteFile(pubFile, []byte(content), 0644); err != nil {
-		log.Printf("Warning: could not write public key file: %v", err)
-	} else {
-		fmt.Printf("\nPublic key written to: %s\n", pubFile)
-	}
+	pubFile := writePubKeyFile(label, pubKeyStr)
 
 	if postHookCmd != "" {
 		fmt.Printf("\nRunning post-create hook: %s\n", postHookCmd)
@@ -180,6 +169,27 @@ func cmdCreate(label string, requireTouch bool, useSE bool, postHookCmd string) 
 		}
 		fmt.Println("Hook completed successfully.")
 	}
+}
+
+func writePubKeyFile(label, pubKeyStr string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("Warning: could not determine home directory: %v", err)
+		return ""
+	}
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		log.Printf("Warning: could not create %s: %v", sshDir, err)
+		return ""
+	}
+	pubFile := filepath.Join(sshDir, fmt.Sprintf("touchid-agent-%s.pub", label))
+	content := fmt.Sprintf("%s touchid-agent:%s\n", pubKeyStr, label)
+	if err := os.WriteFile(pubFile, []byte(content), 0644); err != nil {
+		log.Printf("Warning: could not write public key file: %v", err)
+		return ""
+	}
+	fmt.Printf("\nPublic key written to: %s\n", pubFile)
+	return pubFile
 }
 
 func cmdList() {
@@ -282,10 +292,8 @@ func cmdRun(socketPath string) {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			type temporary interface {
-				Temporary() bool
-			}
-			if err, ok := err.(temporary); ok && err.Temporary() {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
 				log.Println("Temporary Accept error, sleeping 1s:", err)
 				time.Sleep(1 * time.Second)
 				continue

@@ -230,7 +230,7 @@ func ListSEKeys() ([]*SEKey, error) {
 }
 
 func DeleteSEKey(label string) error {
-	// Try both touch and no-touch variants
+	// Touch policy is encoded in the tag, so a label may have either variant.
 	for _, touch := range []bool{true, false} {
 		tag := makeTag(label, touch)
 		cTag := C.CString(tag)
