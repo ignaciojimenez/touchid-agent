@@ -19,13 +19,16 @@ import (
 )
 
 type Agent struct {
-	mu                sync.Mutex
-	touchNotification *time.Timer
+	mu    sync.Mutex
+	store KeyStore
 }
 
 var _ agent.ExtendedAgent = &Agent{}
 
+const connIdleTimeout = 10 * time.Minute
+
 func (a *Agent) serveConn(c net.Conn) {
+	c.SetDeadline(time.Now().Add(connIdleTimeout))
 	if err := agent.ServeAgent(a, c); err != io.EOF {
 		log.Println("Agent client connection ended with error:", err)
 	}
@@ -35,7 +38,7 @@ func (a *Agent) List() ([]*agent.Key, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	keys, err := ListSEKeys()
+	keys, err := a.store.List()
 	if err != nil {
 		return nil, fmt.Errorf("could not list keys: %w", err)
 	}
@@ -60,7 +63,7 @@ func (a *Agent) Signers() ([]ssh.Signer, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	keys, err := ListSEKeys()
+	keys, err := a.store.List()
 	if err != nil {
 		return nil, fmt.Errorf("could not list keys: %w", err)
 	}
@@ -87,18 +90,18 @@ func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Signat
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	a.touchNotification = time.NewTimer(3 * time.Second)
+	timer := time.NewTimer(3 * time.Second)
 	go func() {
 		select {
-		case <-a.touchNotification.C:
+		case <-timer.C:
 		case <-ctx.Done():
-			a.touchNotification.Stop()
+			timer.Stop()
 			return
 		}
 		showNotification("Waiting for Touch ID authentication...")
 	}()
 
-	keys, err := ListSEKeys()
+	keys, err := a.store.List()
 	if err != nil {
 		return nil, fmt.Errorf("could not list keys: %w", err)
 	}

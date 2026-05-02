@@ -28,6 +28,7 @@ type SEKey struct {
 	Tag          string
 	RequireTouch bool
 	publicKey    *ecdsa.PublicKey
+	signFn       func(tag string, digest []byte) ([]byte, error)
 }
 
 func (k *SEKey) Public() crypto.PublicKey {
@@ -35,6 +36,9 @@ func (k *SEKey) Public() crypto.PublicKey {
 }
 
 func (k *SEKey) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
+	if k.signFn != nil {
+		return k.signFn(k.Tag, digest)
+	}
 	return seSign(k.Tag, digest)
 }
 
