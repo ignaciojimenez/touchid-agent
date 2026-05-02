@@ -1,4 +1,4 @@
-module touchid-agent
+module github.com/ignaciojimenez/touchid-agent
 
 go 1.22
 
