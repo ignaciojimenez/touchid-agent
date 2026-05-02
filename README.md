@@ -1,31 +1,21 @@
 # touchid-agent
 
-An SSH agent for macOS that stores keys in the Secure Enclave with Touch ID
-authentication. Drop-in replacement for
-[yubikey-agent](https://github.com/FiloSottile/yubikey-agent) -- same agent
-protocol, no USB hardware required.
+touchid-agent is a seamless ssh-agent for the macOS Secure Enclave.
 
-## Why
+* **No hardware to carry.** Every modern Mac has a Secure Enclave. No USB tokens, no dongles, no "I forgot my YubiKey."
+* **Touch ID per signature.** Biometric confirmation for every SSH or git signing operation, configurable per key.
+* **Drop-in replacement.** Standard SSH agent protocol. Set `SSH_AUTH_SOCK` and go. Compatible with all SSH servers and services.
+* **Indestructible keys.** Generated inside the Secure Enclave, never exportable. There is no file to steal.
 
-Every modern Mac has a Secure Enclave -- a hardware security processor that
-generates and stores cryptographic keys that never leave the chip. Touch ID
-provides biometric confirmation per signing operation. Same security properties
-as a YubiKey, zero hardware logistics.
+Drop-in replacement for [yubikey-agent](https://github.com/FiloSottile/yubikey-agent) -- same protocol, same key types (ECDSA P-256), same two-key model.
 
-## Requirements
-
-- macOS 12+ (Monterey or later)
-- Go 1.22+ (to build from source)
-- Apple Developer ID (for Secure Enclave and Touch ID features; ad-hoc signing
-  works for software-backed keys without Touch ID)
-
-## Install
+## Installation
 
 ```bash
 make install
 ```
 
-Production builds require a Developer ID to embed keychain entitlements:
+For Secure Enclave and Touch ID features, sign with a Developer ID:
 
 ```bash
 make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
@@ -36,8 +26,6 @@ make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 | Software key, no Touch ID | yes | yes |
 | Software key, Touch ID | no | yes |
 | Secure Enclave key | no | yes |
-
-See [docs/building.md](docs/building.md) for build variables and details.
 
 ## Quick start
 
