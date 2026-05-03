@@ -24,10 +24,12 @@ make clean          # remove build artifacts
 Ad-hoc signing (the default) produces a binary that supports software-backed
 keys without Touch ID. This is sufficient for development and testing.
 
-For production, sign with a Developer ID to embed the
-`touchid-agent.entitlements` file, which grants the `keychain-access-groups`
-entitlement required for Secure Enclave access and Touch ID enforcement on
-software keys:
+Secure Enclave key creation requires a Developer ID-signed binary. The
+current Security.framework-based implementation hits an AMFI restriction
+on flat Mach-O CLI binaries: see
+[`docs/cryptokit-migration.md`](cryptokit-migration.md) for the planned
+move to CryptoKit, which restores SE access without the entitlement /
+provisioning-profile dependency.
 
 ```bash
 make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"

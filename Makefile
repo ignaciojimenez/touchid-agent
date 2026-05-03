@@ -4,12 +4,14 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 # CODESIGN_IDENTITY controls code signing and determines feature availability.
 #
 #   Ad-hoc (default, CODESIGN_IDENTITY=-):
-#     Supports: software keys without Touch ID (-software -no-touch)
-#     No entitlements embedded. Good for local development and testing.
+#     Supports: software keys without Touch ID (-software -no-touch).
+#     Good for local development and testing.
 #
 #   Developer ID (CODESIGN_IDENTITY="Developer ID Application: ..."):
-#     Supports: all features (Secure Enclave, Touch ID, software keys)
-#     Embeds touchid-agent.entitlements (keychain-access-groups).
+#     Supports: all features (Secure Enclave, Touch ID, software keys).
+#     Signed with hardened runtime + secure timestamp (notarization-ready).
+#     No entitlements: keychain items default to the team-ID access group,
+#     and Touch ID is enforced at runtime via SecAccessControl flags.
 #     Required for production builds.
 #
 # List available signing identities:
@@ -25,7 +27,7 @@ sign: build
 ifeq ($(CODESIGN_IDENTITY),-)
 	codesign -s "-" -f touchid-agent
 else
-	codesign -s "$(CODESIGN_IDENTITY)" --entitlements touchid-agent.entitlements -f touchid-agent
+	codesign -s "$(CODESIGN_IDENTITY)" --options runtime --timestamp -f touchid-agent
 endif
 
 install: build sign
