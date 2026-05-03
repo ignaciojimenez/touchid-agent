@@ -1,6 +1,10 @@
 touchid-agent
 *.o
 *.a
+*.swiftmodule
+*.swiftdoc
+*.swiftsourceinfo
+*.abi.json
 .DS_Store
 coverage.out
 coverage.html

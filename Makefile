@@ -10,17 +10,39 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 #   Developer ID (CODESIGN_IDENTITY="Developer ID Application: ..."):
 #     Supports: all features (Secure Enclave, Touch ID, software keys).
 #     Signed with hardened runtime + secure timestamp (notarization-ready).
-#     No entitlements: keychain items default to the team-ID access group,
-#     and Touch ID is enforced at runtime via SecAccessControl flags.
+#     No entitlements: CryptoKit's SecureEnclave API talks to the SEP
+#     directly without inserting items into the data-protection keychain,
+#     so no provisioning profile is required.
 #     Required for production builds.
 #
 # List available signing identities:
 #   security find-identity -v -p codesigning
 CODESIGN_IDENTITY ?= -
 
+SWIFT_LIB     := libsecureenclave.a
+SWIFT_MODULE  := SecureEnclaveBridge
+SWIFT_SOURCES := secureenclave.swift
+
+ARCH := $(shell uname -m)
+ifeq ($(ARCH),arm64)
+SWIFT_TARGET := arm64-apple-macos11
+else
+SWIFT_TARGET := x86_64-apple-macos11
+endif
+
+SWIFT_FLAGS := -O -whole-module-optimization \
+               -emit-library -static \
+               -emit-module -module-name $(SWIFT_MODULE) \
+               -parse-as-library \
+               -runtime-compatibility-version none \
+               -target $(SWIFT_TARGET)
+
 .PHONY: build sign install install-completions clean test test-cover
 
-build:
+$(SWIFT_LIB): $(SWIFT_SOURCES)
+	swiftc $(SWIFT_FLAGS) -o $(SWIFT_LIB) $(SWIFT_SOURCES)
+
+build: $(SWIFT_LIB)
 	go build -ldflags "-X main.Version=$(VERSION)" -o touchid-agent .
 
 sign: build
@@ -48,4 +70,8 @@ test-cover:
 	go tool cover -html=coverage.out -o coverage.html
 
 clean:
-	rm -f touchid-agent coverage.out coverage.html
+	rm -f touchid-agent \
+	      $(SWIFT_LIB) \
+	      $(SWIFT_MODULE).swiftmodule $(SWIFT_MODULE).swiftdoc \
+	      $(SWIFT_MODULE).swiftsourceinfo $(SWIFT_MODULE).abi.json \
+	      coverage.out coverage.html
