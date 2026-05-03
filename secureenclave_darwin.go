@@ -37,7 +37,33 @@ func (k *SEKey) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, e
 	if k.signFn != nil {
 		return k.signFn(k.Label, digest)
 	}
-	return nil, errors.New("sign: not implemented in Phase 1 spike")
+	if len(digest) != 32 {
+		return nil, fmt.Errorf("digest must be 32 bytes (SHA-256), got %d", len(digest))
+	}
+	if len(k.keyData) == 0 {
+		return nil, errors.New("key has no associated SE blob")
+	}
+	return seSign(k.keyData, digest)
+}
+
+func seSign(keyData, digest []byte) ([]byte, error) {
+	var (
+		sigOut *C.uint8_t
+		sigLen C.size_t
+		errStr *C.char
+	)
+	rc := C.se_sign(
+		(*C.uint8_t)(unsafe.Pointer(&keyData[0])), C.size_t(len(keyData)),
+		(*C.uint8_t)(unsafe.Pointer(&digest[0])), C.size_t(len(digest)),
+		&sigOut, &sigLen, &errStr,
+	)
+	if rc != 0 {
+		msg := C.GoString(errStr)
+		C.free(unsafe.Pointer(errStr))
+		return nil, errors.New(msg)
+	}
+	defer C.free(unsafe.Pointer(sigOut))
+	return C.GoBytes(unsafe.Pointer(sigOut), C.int(sigLen)), nil
 }
 
 func GenerateSEKey(label string, requireTouch bool, useSE bool) (*SEKey, error) {

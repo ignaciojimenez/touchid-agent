@@ -74,3 +74,47 @@ public func se_public_key(
         return -1
     }
 }
+
+// CryptoKit's signature(for: D where D: DataProtocol) hashes the input with
+// SHA-256 before signing. The agent layer hands us an already-hashed digest,
+// so we route through the signature(for: D where D: Digest) overload via
+// this minimal Digest conformer to avoid double-hashing.
+private struct PrehashedDigest: Digest {
+    static var byteCount: Int { 32 }
+    let bytes: [UInt8]
+
+    func makeIterator() -> Array<UInt8>.Iterator { bytes.makeIterator() }
+    func hash(into hasher: inout Hasher) { hasher.combine(bytes) }
+    func withUnsafeBytes<R>(_ body: (UnsafeRawBufferPointer) throws -> R) rethrows -> R {
+        try bytes.withUnsafeBytes(body)
+    }
+    var description: String { "PrehashedDigest" }
+    static func == (lhs: PrehashedDigest, rhs: PrehashedDigest) -> Bool { lhs.bytes == rhs.bytes }
+}
+
+@_cdecl("se_sign")
+public func se_sign(
+    key_data: UnsafePointer<UInt8>,
+    key_data_len: Int,
+    digest: UnsafePointer<UInt8>,
+    digest_len: Int,
+    sig_out: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,
+    sig_len: UnsafeMutablePointer<Int>,
+    error_out: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
+) -> Int32 {
+    guard digest_len == 32 else {
+        writeError("digest must be 32 bytes (SHA-256), got \(digest_len)", error_out)
+        return -1
+    }
+    do {
+        let blob = Data(bytes: key_data, count: key_data_len)
+        let key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob)
+        let dig = PrehashedDigest(bytes: Array(UnsafeBufferPointer(start: digest, count: digest_len)))
+        let sig = try key.signature(for: dig)
+        writeBytes(sig.derRepresentation, sig_out, sig_len)
+        return 0
+    } catch {
+        writeError("\(error)", error_out)
+        return -1
+    }
+}

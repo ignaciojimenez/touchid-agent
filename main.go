@@ -3,6 +3,8 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -139,6 +141,11 @@ func cmdCreate(label string, requireTouch bool, useSE bool, postHookCmd string) 
 		log.Fatalf("Failed to generate key: %v\n", err)
 	}
 
+	if err := selfTestKey(key, requireTouch); err != nil {
+		log.Fatalf("Key was generated but failed self-test: %v\n"+
+			"The key is unusable; this likely indicates a bug. Please report.\n", err)
+	}
+
 	sshPub, err := ssh.NewPublicKey(key.publicKey)
 	if err != nil {
 		log.Fatalf("Failed to convert public key: %v\n", err)
@@ -169,6 +176,26 @@ func cmdCreate(label string, requireTouch bool, useSE bool, postHookCmd string) 
 		}
 		fmt.Println("Hook completed successfully.")
 	}
+}
+
+// selfTestKey signs a fixed digest with the freshly generated key and
+// verifies the signature locally. Forces a Touch ID prompt for biometry-
+// gated keys (the user expects this ceremony at create time) and proves
+// end-to-end that the access control + signing path are wired correctly
+// before we tell the user the key is ready to use.
+func selfTestKey(key *SEKey, requireTouch bool) error {
+	if requireTouch {
+		fmt.Fprintln(os.Stderr, "Confirming Touch ID enforcement (please authenticate)...")
+	}
+	digest := sha256.Sum256([]byte("touchid-agent: creation self-test"))
+	sig, err := key.Sign(nil, digest[:], nil)
+	if err != nil {
+		return fmt.Errorf("sign: %w", err)
+	}
+	if !ecdsa.VerifyASN1(key.publicKey, digest[:], sig) {
+		return errors.New("signature verification failed")
+	}
+	return nil
 }
 
 func writePubKeyFile(label, pubKeyStr string) string {

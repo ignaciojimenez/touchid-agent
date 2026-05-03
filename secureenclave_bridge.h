@@ -26,4 +26,14 @@ int se_public_key(
     char **error_out
 );
 
+// Sign a 32-byte SHA-256 digest with a previously-generated SE key blob.
+// digest_len must equal 32. The digest is treated as pre-hashed input;
+// CryptoKit will not re-hash it. Output is a DER-encoded ECDSA signature.
+int se_sign(
+    const uint8_t *key_data, size_t key_data_len,
+    const uint8_t *digest,   size_t digest_len,
+    uint8_t **sig_out,       size_t *sig_len,
+    char **error_out
+);
+
 #endif
