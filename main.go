@@ -65,6 +65,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        Delete the key with the given label.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -delete-all\n")
 		fmt.Fprintf(os.Stderr, "        Delete all managed keys.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -migrate\n")
+		fmt.Fprintf(os.Stderr, "        Migrate software keys from on-disk storage to the macOS Keychain.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
 	}
@@ -77,6 +79,7 @@ func main() {
 	listKeys := flag.Bool("list", false, "list all managed keys")
 	deleteKey := flag.String("delete", "", "delete the key with the given label")
 	deleteAll := flag.Bool("delete-all", false, "delete all managed keys")
+	migrate := flag.Bool("migrate", false, "migrate software keys to Keychain")
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
 	showVersion := flag.Bool("version", false, "print version and exit")
 
@@ -118,6 +121,8 @@ func main() {
 		cmdDelete(store, *deleteKey)
 	case *deleteAll:
 		cmdDeleteAll(store)
+	case *migrate:
+		cmdMigrate(store)
 	case *socketPath != "":
 		cmdRun(store, *socketPath)
 	default:
@@ -132,6 +137,10 @@ func main() {
 // it because users wanting biometry already get the strictly-better
 // SE-backed default.
 func validateCreateFlags(software, noTouch bool) error {
+	if software && !softwareBackendEnabled {
+		return errors.New(
+			"-software is disabled in this build (compiled with nosoftware tag)")
+	}
 	if software && !noTouch {
 		return errors.New(
 			"-software requires -no-touch (Touch ID is not supported on " +
@@ -293,10 +302,29 @@ func cmdList(store KeyStore) {
 }
 
 func cmdDelete(store KeyStore, label string) {
+	if err := validateLabel(label); err != nil {
+		log.Fatalf("Error: %v\n", err)
+	}
 	if err := store.Delete(label); err != nil {
 		log.Fatalf("Failed to delete key: %v\n", err)
 	}
 	fmt.Printf("Key '%s' deleted.\n", label)
+}
+
+func cmdMigrate(store KeyStore) {
+	fs, ok := store.(*FilesystemKeyStore)
+	if !ok {
+		log.Fatalln("migrate is only supported with the filesystem keystore")
+	}
+	n, err := fs.MigrateToKeychain()
+	if err != nil {
+		log.Fatalf("Migration failed: %v\n", err)
+	}
+	if n == 0 {
+		fmt.Println("No keys needed migration.")
+	} else {
+		fmt.Printf("Migrated %d software key(s) to the Keychain.\n", n)
+	}
 }
 
 func cmdDeleteAll(store KeyStore) {
@@ -337,12 +365,14 @@ func cmdRun(store KeyStore, socketPath string) {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0700); err != nil {
 		log.Fatalln("Failed to create UNIX socket directory:", err)
 	}
+	oldMask := syscall.Umask(0077)
 	l, err := net.Listen("unix", socketPath)
+	syscall.Umask(oldMask)
 	if err != nil {
 		log.Fatalln("Failed to listen on UNIX socket:", err)
 	}
 
-	// H1: Restrict socket permissions to owner only.
+	// Belt-and-suspenders: explicit chmod after umask-protected creation.
 	if err := os.Chmod(socketPath, 0600); err != nil {
 		log.Printf("Warning: could not set socket permissions: %v", err)
 	}

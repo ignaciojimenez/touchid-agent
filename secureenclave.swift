@@ -119,6 +119,94 @@ public func se_sign(
     }
 }
 
+// MARK: - Keychain storage for software keys
+
+@_cdecl("sw_keychain_store")
+public func sw_keychain_store(
+    label: UnsafePointer<CChar>,
+    key_data: UnsafePointer<UInt8>,
+    key_data_len: Int,
+    error_out: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
+) -> Int32 {
+    let labelStr = String(cString: label)
+    let data = Data(bytes: key_data, count: key_data_len)
+
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "touchid-agent",
+        kSecAttrAccount as String: labelStr,
+        kSecValueData as String: data,
+        kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+    ]
+
+    var status = SecItemAdd(query as CFDictionary, nil)
+    if status == errSecDuplicateItem {
+        let search: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "touchid-agent",
+            kSecAttrAccount as String: labelStr,
+        ]
+        let update: [String: Any] = [kSecValueData as String: data]
+        status = SecItemUpdate(search as CFDictionary, update as CFDictionary)
+    }
+    if status != errSecSuccess {
+        writeError("keychain store: OSStatus \(status)", error_out)
+        return -1
+    }
+    return 0
+}
+
+@_cdecl("sw_keychain_load")
+public func sw_keychain_load(
+    label: UnsafePointer<CChar>,
+    key_data_out: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,
+    key_data_len: UnsafeMutablePointer<Int>,
+    error_out: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
+) -> Int32 {
+    let labelStr = String(cString: label)
+
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "touchid-agent",
+        kSecAttrAccount as String: labelStr,
+        kSecReturnData as String: true,
+    ]
+
+    var result: AnyObject?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    if status != errSecSuccess {
+        writeError("keychain load: OSStatus \(status)", error_out)
+        return -1
+    }
+    guard let data = result as? Data else {
+        writeError("keychain load: unexpected result type", error_out)
+        return -1
+    }
+    writeBytes(data, key_data_out, key_data_len)
+    return 0
+}
+
+@_cdecl("sw_keychain_delete")
+public func sw_keychain_delete(
+    label: UnsafePointer<CChar>,
+    error_out: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
+) -> Int32 {
+    let labelStr = String(cString: label)
+
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "touchid-agent",
+        kSecAttrAccount as String: labelStr,
+    ]
+
+    let status = SecItemDelete(query as CFDictionary)
+    if status != errSecSuccess && status != errSecItemNotFound {
+        writeError("keychain delete: OSStatus \(status)", error_out)
+        return -1
+    }
+    return 0
+}
+
 // MARK: - Software backend
 //
 // Software keys never reach the SEP. CryptoKit generates and signs in

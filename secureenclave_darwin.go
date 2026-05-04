@@ -187,6 +187,58 @@ func generateSEKey(requireTouch bool) (keyData []byte, pub *ecdsa.PublicKey, err
 	return keyData, pub, nil
 }
 
+func keychainStore(label string, keyData []byte) error {
+	cLabel := C.CString(label)
+	defer C.free(unsafe.Pointer(cLabel))
+	var errStr *C.char
+	rc := C.sw_keychain_store(
+		cLabel,
+		(*C.uint8_t)(unsafe.Pointer(&keyData[0])), C.size_t(len(keyData)),
+		&errStr,
+	)
+	if rc != 0 {
+		msg := C.GoString(errStr)
+		C.free(unsafe.Pointer(errStr))
+		return errors.New(msg)
+	}
+	return nil
+}
+
+func keychainLoad(label string) ([]byte, error) {
+	cLabel := C.CString(label)
+	defer C.free(unsafe.Pointer(cLabel))
+	var (
+		dataOut *C.uint8_t
+		dataLen C.size_t
+		errStr  *C.char
+	)
+	rc := C.sw_keychain_load(
+		cLabel,
+		&dataOut, &dataLen,
+		&errStr,
+	)
+	if rc != 0 {
+		msg := C.GoString(errStr)
+		C.free(unsafe.Pointer(errStr))
+		return nil, errors.New(msg)
+	}
+	defer C.free(unsafe.Pointer(dataOut))
+	return C.GoBytes(unsafe.Pointer(dataOut), C.int(dataLen)), nil
+}
+
+func keychainDelete(label string) error {
+	cLabel := C.CString(label)
+	defer C.free(unsafe.Pointer(cLabel))
+	var errStr *C.char
+	rc := C.sw_keychain_delete(cLabel, &errStr)
+	if rc != 0 {
+		msg := C.GoString(errStr)
+		C.free(unsafe.Pointer(errStr))
+		return errors.New(msg)
+	}
+	return nil
+}
+
 func parseECPublicKey(raw []byte) (*ecdsa.PublicKey, error) {
 	// Uncompressed EC point: 0x04 || x (32 bytes) || y (32 bytes)
 	if len(raw) != 65 || raw[0] != 0x04 {
@@ -194,6 +246,9 @@ func parseECPublicKey(raw []byte) (*ecdsa.PublicKey, error) {
 	}
 	x := new(big.Int).SetBytes(raw[1:33])
 	y := new(big.Int).SetBytes(raw[33:65])
+	if !elliptic.P256().IsOnCurve(x, y) {
+		return nil, fmt.Errorf("public key is not on the P-256 curve")
+	}
 	return &ecdsa.PublicKey{
 		Curve: elliptic.P256(),
 		X:     x,

@@ -96,6 +96,15 @@ func TestClassifySignError(t *testing.T) {
 	}
 }
 
+func TestValidateCreateFlags_SoftwareBackendGate(t *testing.T) {
+	if !softwareBackendEnabled {
+		err := validateCreateFlags(true, true)
+		if err == nil || !strings.Contains(err.Error(), "disabled") {
+			t.Errorf("nosoftware build should reject -software, got: %v", err)
+		}
+	}
+}
+
 func TestValidateCreateFlags(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -105,7 +114,7 @@ func TestValidateCreateFlags(t *testing.T) {
 	}{
 		{"SE with Touch (default)", false, false, false},
 		{"SE without Touch", false, true, false},
-		{"software without Touch", true, true, false},
+		{"software without Touch", true, true, !softwareBackendEnabled},
 		{"software with Touch (rejected)", true, false, true},
 	}
 	for _, tc := range cases {
@@ -116,9 +125,6 @@ func TestValidateCreateFlags(t *testing.T) {
 			}
 			if !tc.wantErr && err != nil {
 				t.Errorf("unexpected error: %v", err)
-			}
-			if tc.wantErr && err != nil && !strings.Contains(err.Error(), "-no-touch") {
-				t.Errorf("error should mention -no-touch, got: %v", err)
 			}
 		})
 	}

@@ -229,3 +229,37 @@ func TestAgent_ConcurrentSign(t *testing.T) {
 		t.Errorf("concurrent Sign error: %v", err)
 	}
 }
+
+func TestAgent_ConcurrentSign_DifferentKeys(t *testing.T) {
+	a, store := newTestAgent(t)
+	key1, _ := store.Generate("key-a", false, false)
+	key2, _ := store.Generate("key-b", false, false)
+	pub1, _ := ssh.NewPublicKey(key1.publicKey)
+	pub2, _ := ssh.NewPublicKey(key2.publicKey)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 20)
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			data := sha256.Sum256([]byte("key-a data"))
+			if _, err := a.Sign(pub1, data[:]); err != nil {
+				errs <- err
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			data := sha256.Sum256([]byte("key-b data"))
+			if _, err := a.Sign(pub2, data[:]); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Errorf("concurrent multi-key Sign error: %v", err)
+	}
+}

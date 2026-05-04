@@ -53,4 +53,26 @@ int sw_sign(
     char **error_out
 );
 
+// Store a software key blob in the macOS Keychain, protected by
+// kSecAttrAccessibleWhenUnlockedThisDeviceOnly. Overwrites if exists.
+int sw_keychain_store(
+    const char *label,
+    const uint8_t *key_data, size_t key_data_len,
+    char **error_out
+);
+
+// Load a software key blob from the macOS Keychain.
+int sw_keychain_load(
+    const char *label,
+    uint8_t **key_data_out, size_t *key_data_len,
+    char **error_out
+);
+
+// Delete a software key blob from the macOS Keychain.
+// Returns success if the item does not exist.
+int sw_keychain_delete(
+    const char *label,
+    char **error_out
+);
+
 #endif

@@ -37,13 +37,16 @@ SWIFT_FLAGS := -O -whole-module-optimization \
                -runtime-compatibility-version none \
                -target $(SWIFT_TARGET)
 
-.PHONY: build sign install install-completions install-launchd universal clean test test-cover
+.PHONY: build build-corp sign install install-completions install-launchd universal clean test test-cover
 
 $(SWIFT_LIB): $(SWIFT_SOURCES)
 	swiftc $(SWIFT_FLAGS) -o $(SWIFT_LIB) $(SWIFT_SOURCES)
 
 build: $(SWIFT_LIB)
 	go build -ldflags "-X main.Version=$(VERSION)" -o touchid-agent .
+
+build-corp: $(SWIFT_LIB)
+	go build -tags nosoftware -ldflags "-X main.Version=$(VERSION)" -o touchid-agent .
 
 sign: build
 ifeq ($(CODESIGN_IDENTITY),-)

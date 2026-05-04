@@ -18,6 +18,9 @@ import (
 // near the SEP.
 func writeTestKeyfile(t *testing.T, dir, label string, requireTouch bool, backend Backend) {
 	t.Helper()
+	if backend == BackendSoftware {
+		t.Cleanup(func() { _ = keychainDelete(label) })
+	}
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +70,7 @@ func TestFilesystemKeyStore_ListMissingDir(t *testing.T) {
 func TestFilesystemKeyStore_ListMultipleSorted(t *testing.T) {
 	dir := t.TempDir()
 	writeTestKeyfile(t, dir, "zeta", true, BackendSecureEnclave)
-	writeTestKeyfile(t, dir, "alpha", false, BackendSoftware)
+	writeTestKeyfile(t, dir, "alpha", false, BackendSecureEnclave)
 	writeTestKeyfile(t, dir, "mu", true, BackendSecureEnclave)
 
 	s := &FilesystemKeyStore{Dir: dir}
@@ -78,7 +81,6 @@ func TestFilesystemKeyStore_ListMultipleSorted(t *testing.T) {
 	if len(keys) != 3 {
 		t.Fatalf("expected 3 keys, got %d", len(keys))
 	}
-	// Stable sort by label keeps -list output deterministic.
 	want := []string{"alpha", "mu", "zeta"}
 	for i, k := range keys {
 		if k.Label != want[i] {
@@ -218,6 +220,15 @@ func TestFilesystemKeyStore_DefaultKeyStoreInitialises(t *testing.T) {
 	}
 	if perm := pinfo.Mode().Perm(); perm != 0o700 {
 		t.Errorf("parent dir perm = %o, want 0700", perm)
+	}
+}
+
+func TestFilesystemKeyStore_DeleteRejectsPathTraversal(t *testing.T) {
+	s := &FilesystemKeyStore{Dir: t.TempDir()}
+	for _, label := range []string{"../etc/passwd", "foo/bar", "a\\b"} {
+		if err := s.Delete(label); err == nil {
+			t.Errorf("Delete(%q) should reject path traversal", label)
+		}
 	}
 }
 

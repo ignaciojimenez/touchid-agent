@@ -76,11 +76,22 @@ func (s *FilesystemKeyStore) Generate(label string, requireTouch, useSE bool) (*
 		backend = BackendSecureEnclave
 		keyData, pub, err = generateSEKey(requireTouch)
 	} else {
+		if !softwareBackendEnabled {
+			return nil, errors.New("software backend is disabled in this build")
+		}
 		backend = BackendSoftware
 		keyData, pub, err = generateSoftwareKey()
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	keyDataForFile := base64.StdEncoding.EncodeToString(keyData)
+	if backend == BackendSoftware {
+		if err := keychainStore(label, keyData); err != nil {
+			return nil, fmt.Errorf("keychain store: %w", err)
+		}
+		keyDataForFile = ""
 	}
 
 	rec := keyfile{
@@ -89,7 +100,7 @@ func (s *FilesystemKeyStore) Generate(label string, requireTouch, useSE bool) (*
 		Backend:      backend.String(),
 		RequireTouch: requireTouch,
 		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
-		KeyData:      base64.StdEncoding.EncodeToString(keyData),
+		KeyData:      keyDataForFile,
 		PublicKey:    base64.StdEncoding.EncodeToString(marshalECPublicKey(pub)),
 	}
 	if err := writeKeyfile(path, &rec); err != nil {
@@ -130,6 +141,10 @@ func (s *FilesystemKeyStore) List() ([]*SEKey, error) {
 }
 
 func (s *FilesystemKeyStore) Delete(label string) error {
+	if err := validateLabel(label); err != nil {
+		return err
+	}
+	_ = keychainDelete(label)
 	err := os.Remove(s.path(label))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -150,11 +165,67 @@ func (s *FilesystemKeyStore) DeleteAll() error {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
+		label := strings.TrimSuffix(e.Name(), ".json")
+		_ = keychainDelete(label)
 		if err := os.Remove(filepath.Join(s.Dir, e.Name())); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
 	return firstErr
+}
+
+// MigrateToKeychain moves software key material from on-disk JSON files into the
+// macOS Keychain. Intended to be run as a one-shot CLI command, not concurrently
+// with the agent daemon.
+func (s *FilesystemKeyStore) MigrateToKeychain() (int, error) {
+	entries, err := os.ReadDir(s.Dir)
+	if err != nil {
+		return 0, err
+	}
+	migrated := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(s.Dir, e.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("skipping %s: %v", e.Name(), err)
+			continue
+		}
+		var rec keyfile
+		if err := json.Unmarshal(data, &rec); err != nil {
+			log.Printf("skipping %s: %v", e.Name(), err)
+			continue
+		}
+		backend, err := parseBackend(rec.Backend)
+		if err != nil || backend != BackendSoftware || rec.KeyData == "" {
+			continue
+		}
+		keyData, err := base64.StdEncoding.DecodeString(rec.KeyData)
+		if err != nil || len(keyData) == 0 {
+			continue
+		}
+		if err := migrateKeyToKeychain(path, &rec, keyData); err != nil {
+			return migrated, fmt.Errorf("migrate %q: %w", rec.Label, err)
+		}
+		log.Printf("migrated %s to Keychain", rec.Label)
+		migrated++
+	}
+	return migrated, nil
+}
+
+func migrateKeyToKeychain(path string, rec *keyfile, keyData []byte) error {
+	if err := keychainStore(rec.Label, keyData); err != nil {
+		return err
+	}
+	rec.KeyData = ""
+	data, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o600)
 }
 
 func writeKeyfile(path string, rec *keyfile) error {
@@ -191,9 +262,23 @@ func loadKeyfile(path string) (*SEKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	keyData, err := base64.StdEncoding.DecodeString(rec.KeyData)
-	if err != nil {
-		return nil, fmt.Errorf("decode key_data: %w", err)
+	if backend == BackendSoftware && !softwareBackendEnabled {
+		return nil, fmt.Errorf("software key %q not supported in this build", rec.Label)
+	}
+	var keyData []byte
+	if backend == BackendSoftware && rec.KeyData == "" {
+		keyData, err = keychainLoad(rec.Label)
+		if err != nil {
+			return nil, fmt.Errorf("keychain load for %q: %w", rec.Label, err)
+		}
+	} else {
+		keyData, err = base64.StdEncoding.DecodeString(rec.KeyData)
+		if err != nil {
+			return nil, fmt.Errorf("decode key_data: %w", err)
+		}
+		if backend == BackendSoftware && len(keyData) > 0 {
+			log.Printf("warning: software key %q has unprotected key material on disk; run -migrate to move it to the Keychain", rec.Label)
+		}
 	}
 	pubRaw, err := base64.StdEncoding.DecodeString(rec.PublicKey)
 	if err != nil {
