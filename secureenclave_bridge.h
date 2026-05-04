@@ -36,4 +36,21 @@ int se_sign(
     char **error_out
 );
 
+// Generate a software-backed P-256 signing key (no Secure Enclave).
+// key_data_out: 32-byte raw private scalar (rawRepresentation).
+// pubkey_out:   uncompressed EC point, 65 bytes (0x04 || X || Y).
+int sw_generate(
+    uint8_t **key_data_out, size_t *key_data_len,
+    uint8_t **pubkey_out,   size_t *pubkey_len,
+    char **error_out
+);
+
+// Sign a 32-byte SHA-256 digest with a software P-256 key blob.
+int sw_sign(
+    const uint8_t *key_data, size_t key_data_len,
+    const uint8_t *digest,   size_t digest_len,
+    uint8_t **sig_out,       size_t *sig_len,
+    char **error_out
+);
+
 #endif

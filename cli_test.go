@@ -67,3 +67,31 @@ func TestValidateLabel_SpecialChars(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateCreateFlags(t *testing.T) {
+	cases := []struct {
+		name     string
+		software bool
+		noTouch  bool
+		wantErr  bool
+	}{
+		{"SE with Touch (default)", false, false, false},
+		{"SE without Touch", false, true, false},
+		{"software without Touch", true, true, false},
+		{"software with Touch (rejected)", true, false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateCreateFlags(tc.software, tc.noTouch)
+			if tc.wantErr && err == nil {
+				t.Errorf("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tc.wantErr && err != nil && !strings.Contains(err.Error(), "-no-touch") {
+				t.Errorf("error should mention -no-touch, got: %v", err)
+			}
+		})
+	}
+}

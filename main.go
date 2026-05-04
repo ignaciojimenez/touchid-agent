@@ -88,6 +88,13 @@ func main() {
 		debugLogger = log.New(os.Stderr, "debug: ", log.Ltime)
 	}
 
+	if *createKey != "" {
+		if err := validateCreateFlags(*software, *noTouch); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
 	store, err := DefaultKeyStore()
 	if err != nil {
 		log.Fatalf("Failed to initialize key store: %v\n", err)
@@ -108,6 +115,21 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+}
+
+// validateCreateFlags rejects the only disallowed flag combo: -software
+// without -no-touch. Touch ID enforcement on software keys would require
+// a custom encryption-with-LAContext scheme; the trade-off is not worth
+// it because users wanting biometry already get the strictly-better
+// SE-backed default.
+func validateCreateFlags(software, noTouch bool) error {
+	if software && !noTouch {
+		return errors.New(
+			"-software requires -no-touch (Touch ID is not supported on " +
+				"software-backed keys; use the default -create for an SE key " +
+				"with Touch ID enforced by the Secure Enclave Processor)")
+	}
+	return nil
 }
 
 func validateLabel(label string) error {

@@ -77,7 +77,7 @@ func (k *SEKey) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, e
 	case BackendSecureEnclave:
 		return seSign(k.keyData, digest)
 	case BackendSoftware:
-		return nil, errors.New("software keys arrive in Phase 4")
+		return swSign(k.keyData, digest)
 	default:
 		return nil, fmt.Errorf("unknown backend %d", k.Backend)
 	}
@@ -101,6 +101,55 @@ func seSign(keyData, digest []byte) ([]byte, error) {
 	}
 	defer C.free(unsafe.Pointer(sigOut))
 	return C.GoBytes(unsafe.Pointer(sigOut), C.int(sigLen)), nil
+}
+
+func swSign(keyData, digest []byte) ([]byte, error) {
+	var (
+		sigOut *C.uint8_t
+		sigLen C.size_t
+		errStr *C.char
+	)
+	rc := C.sw_sign(
+		(*C.uint8_t)(unsafe.Pointer(&keyData[0])), C.size_t(len(keyData)),
+		(*C.uint8_t)(unsafe.Pointer(&digest[0])), C.size_t(len(digest)),
+		&sigOut, &sigLen, &errStr,
+	)
+	if rc != 0 {
+		msg := C.GoString(errStr)
+		C.free(unsafe.Pointer(errStr))
+		return nil, errors.New(msg)
+	}
+	defer C.free(unsafe.Pointer(sigOut))
+	return C.GoBytes(unsafe.Pointer(sigOut), C.int(sigLen)), nil
+}
+
+// generateSoftwareKey returns a fresh CryptoKit P-256 software key. The
+// returned blob is the 32-byte raw private scalar (rawRepresentation).
+func generateSoftwareKey() (keyData []byte, pub *ecdsa.PublicKey, err error) {
+	var (
+		keyDataOut *C.uint8_t
+		keyDataLen C.size_t
+		pubOut     *C.uint8_t
+		pubLen     C.size_t
+		errStr     *C.char
+	)
+	rc := C.sw_generate(&keyDataOut, &keyDataLen, &pubOut, &pubLen, &errStr)
+	if rc != 0 {
+		msg := C.GoString(errStr)
+		C.free(unsafe.Pointer(errStr))
+		return nil, nil, fmt.Errorf("generate software key: %s", msg)
+	}
+	defer C.free(unsafe.Pointer(keyDataOut))
+	defer C.free(unsafe.Pointer(pubOut))
+
+	keyData = C.GoBytes(unsafe.Pointer(keyDataOut), C.int(keyDataLen))
+	pubRaw := C.GoBytes(unsafe.Pointer(pubOut), C.int(pubLen))
+
+	pub, err = parseECPublicKey(pubRaw)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse public key: %w", err)
+	}
+	return keyData, pub, nil
 }
 
 // generateSEKey is the cgo entry point used by the keystore. It returns the

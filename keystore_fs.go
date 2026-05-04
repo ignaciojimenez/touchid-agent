@@ -3,6 +3,7 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -65,11 +66,19 @@ func (s *FilesystemKeyStore) Generate(label string, requireTouch, useSE bool) (*
 		return nil, fmt.Errorf("stat %s: %w", path, err)
 	}
 
-	if !useSE {
-		return nil, errors.New("software keys arrive in Phase 4")
+	var (
+		backend Backend
+		keyData []byte
+		pub     *ecdsa.PublicKey
+		err     error
+	)
+	if useSE {
+		backend = BackendSecureEnclave
+		keyData, pub, err = generateSEKey(requireTouch)
+	} else {
+		backend = BackendSoftware
+		keyData, pub, err = generateSoftwareKey()
 	}
-
-	keyData, pub, err := generateSEKey(requireTouch)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +86,7 @@ func (s *FilesystemKeyStore) Generate(label string, requireTouch, useSE bool) (*
 	rec := keyfile{
 		Version:      keyfileVersion,
 		Label:        label,
-		Backend:      BackendSecureEnclave.String(),
+		Backend:      backend.String(),
 		RequireTouch: requireTouch,
 		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 		KeyData:      base64.StdEncoding.EncodeToString(keyData),
@@ -89,7 +98,7 @@ func (s *FilesystemKeyStore) Generate(label string, requireTouch, useSE bool) (*
 
 	return &SEKey{
 		Label:        label,
-		Backend:      BackendSecureEnclave,
+		Backend:      backend,
 		RequireTouch: requireTouch,
 		publicKey:    pub,
 		keyData:      keyData,

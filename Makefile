@@ -62,10 +62,10 @@ install-completions:
 	install -d $(PREFIX)/share/zsh/site-functions
 	install -m 644 contrib/completions/touchid-agent.zsh $(PREFIX)/share/zsh/site-functions/_touchid-agent
 
-test:
+test: $(SWIFT_LIB)
 	go test -v -race -count=1 ./...
 
-test-cover:
+test-cover: $(SWIFT_LIB)
 	go test -v -race -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
 
