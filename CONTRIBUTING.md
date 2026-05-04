@@ -2,27 +2,36 @@
 
 ## Project overview
 
-macOS SSH agent backed by the Secure Enclave and Touch ID. Drop-in replacement
-for yubikey-agent. darwin-only by design; requires CGo (Objective-C bridge to
-Security.framework).
+macOS SSH agent backed by the Secure Enclave and Touch ID. Drop-in
+replacement for yubikey-agent. darwin-only by design; the cgo bridge
+links a Swift static library that talks to the SEP through CryptoKit.
 
 ## Key constraints
 
-- **darwin-only** — build tag `//go:build darwin` on all source files; will not compile elsewhere
-- **CGo required** — `secureenclave_darwin.go` bridges to `secureenclave.m` via CGo
-- **Code signing** — ad-hoc signing (default) only supports `-software -no-touch` keys;
-  Developer ID signing is required for Secure Enclave keys and Touch ID enforcement on software keys
-- **No test for real Keychain/SE** — `keystore_mock_test.go` provides a mock with real ECDSA;
-  tests that need the actual Keychain must be run manually
+- **darwin-only** — build tag `//go:build darwin` on all source files;
+  will not compile elsewhere.
+- **Swift toolchain required** — `secureenclave.swift` is compiled to
+  `libsecureenclave.a` by `swiftc` (Xcode Command Line Tools provides
+  it). `make build` runs the Swift step before `go build`.
+- **Cgo required** — `secureenclave_darwin.go` bridges to the static
+  Swift archive via cgo and the `secureenclave_bridge.h` header.
+- **macOS 11+** — CryptoKit's `SecureEnclave.P256` API needs that
+  deployment target; we set it explicitly via `-target *-apple-macos11`.
+- **Code signing** — ad-hoc signing (default) supports software keys
+  via `-software -no-touch`. Developer ID signing is required for
+  Secure Enclave keys; **no entitlements** are used.
+- **No test for real SE** — `keystore_mock_test.go` provides a mock
+  `KeyStore` with real ECDSA signing for unit tests; SE-backed flows
+  are exercised manually after `make sign CODESIGN_IDENTITY="..."`.
 
 ## Build and test commands
 
 ```bash
-make build          # compile binary
-make test           # go test -v -race -count=1 ./...
+make build          # swiftc + go build
+make test           # go test -v -race -count=1 ./... (depends on libsecureenclave.a)
 make install        # build + codesign + install to /usr/local/bin
 make test-cover     # run tests + generate coverage.html
-make clean          # remove build artifacts
+make clean          # remove build artifacts (binary, .a, .swiftmodule, etc.)
 ```
 
 Quick run:
@@ -38,33 +47,40 @@ main.go                  CLI + daemon (flag parsing, socket lifecycle)
 agent.go                 SSH agent protocol (golang.org/x/crypto/ssh/agent)
 hook.go                  Post-create hook execution
 keystore.go              KeyStore interface — testability boundary
-secureenclave_darwin.go  Go/CGo bridge to Security.framework
-secureenclave.m          Obj-C: key generation, signing, listing, deletion
+keystore_fs.go           Filesystem-backed KeyStore (~/.touchid-agent/keys/)
+secureenclave.swift      CryptoKit bridge: SE + software P-256
+secureenclave_bridge.h   Cgo / Swift C ABI
+secureenclave_darwin.go  Go side of the cgo bridge
 notify_darwin.go         Touch ID reminder notification
 contrib/hooks/           Example provisioning hooks (GitHub, etc.)
 contrib/completions/     Shell completions (bash, zsh)
 contrib/plist/           launchd service template
 ```
 
-See `docs/architecture.md` for design principles and `docs/decisions.md` for
-a log of architecture and strategy decisions.
+See `docs/architecture.md` for design principles, `THREAT_MODEL.md` for
+the security model.
 
 ## Testing
 
-- All tests use the race detector: `make test`
-- `keystore_mock_test.go` provides a mock `KeyStore` with real ECDSA signing (no Keychain needed)
-- `agent_integration_test.go` covers the full agent-socket path with the mock store
-- When adding tests that require the real Keychain/Secure Enclave, document the manual steps
+- All tests use the race detector: `make test`.
+- `keystore_mock_test.go` provides a mock `KeyStore` with real ECDSA
+  signing (no SE needed). Most agent / CLI tests use it.
+- `keystore_fs_test.go` covers the filesystem store, including
+  malformed-JSON skipping and label/filename mismatch rejection.
+- `agent_integration_test.go` covers the full agent-socket path with
+  the mock store.
+- SE-dependent flows (Touch ID prompts, end-to-end SSH) require a
+  Developer-ID-signed binary on a Mac with an SEP. Run them manually.
 
 ## Shell Completions
 
-When adding, removing, or renaming CLI flags in `main.go`, update the shell
-completion scripts to stay in sync:
+When adding, removing, or renaming CLI flags in `main.go`, update the
+shell completion scripts to stay in sync:
 
-- `contrib/completions/touchid-agent.bash` — update `_touchid_agent_flags` and
-  the `case` statement for flags that take values.
+- `contrib/completions/touchid-agent.bash` — update `_touchid_agent_flags`
+  and the `case` statement for flags that take values.
 - `contrib/completions/touchid-agent.zsh` — update the `_arguments` list.
 
-Flags that accept a value (e.g. `-create NAME`) need special handling in both
-scripts: bash needs a `case` entry to suppress file completion, zsh needs a
-`:description:` suffix on the argument spec.
+Flags that accept a value (e.g. `-create NAME`) need special handling in
+both scripts: bash needs a `case` entry to suppress file completion, zsh
+needs a `:description:` suffix on the argument spec.

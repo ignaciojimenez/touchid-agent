@@ -23,9 +23,9 @@ make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 
 | Feature | Ad-hoc (default) | Developer ID |
 |---------|:----------------:|:------------:|
-| Software key, no Touch ID | yes | yes |
-| Software key, Touch ID | no | yes |
-| Secure Enclave key | no | yes |
+| Software key (`-software -no-touch`) | yes | yes |
+| Secure Enclave key, no Touch ID | no | yes |
+| Secure Enclave key, Touch ID (default) | no | yes |
 
 ## Quick start
 
@@ -68,8 +68,11 @@ touchid-agent -delete-all
 
 Private keys are generated inside the Secure Enclave and cannot be exported.
 The agent process never holds key material -- all signing is delegated to
-Security.framework. Software-backed keys (`-software`) are stored in the macOS
-Keychain, protected by login credentials but not hardware-isolated.
+CryptoKit, which talks to the SEP directly. Keys are persisted as opaque
+SEP-wrapped blobs at `~/.touchid-agent/keys/<label>.json` (mode 0600).
+Software-backed keys (`-software -no-touch`) live as raw scalars in the
+same files; they exist as an escape hatch for ad-hoc-signed builds and
+are not hardware-isolated.
 
 See [THREAT_MODEL.md](THREAT_MODEL.md) for the full analysis.
 
