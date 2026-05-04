@@ -30,12 +30,11 @@ func (m *MockKeyStore) List() ([]*SEKey, error) {
 	return result, nil
 }
 
-func (m *MockKeyStore) Generate(label string, requireTouch bool, _ bool) (*SEKey, error) {
+func (m *MockKeyStore) Generate(label string, requireTouch bool, useSE bool) (*SEKey, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	tag := makeTag(label, requireTouch)
-	if _, exists := m.keys[tag]; exists {
+	if _, exists := m.keys[label]; exists {
 		return nil, fmt.Errorf("key already exists: %s", label)
 	}
 
@@ -44,34 +43,34 @@ func (m *MockKeyStore) Generate(label string, requireTouch bool, _ bool) (*SEKey
 		return nil, err
 	}
 
+	backend := BackendSoftware
+	if useSE {
+		backend = BackendSecureEnclave
+	}
+
 	key := &SEKey{
 		Label:        label,
-		Tag:          tag,
+		Backend:      backend,
 		RequireTouch: requireTouch,
 		publicKey:    &priv.PublicKey,
 		signFn: func(_ string, digest []byte) ([]byte, error) {
 			return ecdsa.SignASN1(rand.Reader, priv, digest)
 		},
 	}
-	m.keys[tag] = key
+	m.keys[label] = key
 	return key, nil
 }
 
 func (m *MockKeyStore) Delete(label string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	for _, touch := range []bool{true, false} {
-		tag := makeTag(label, touch)
-		delete(m.keys, tag)
-	}
+	delete(m.keys, label)
 	return nil
 }
 
 func (m *MockKeyStore) DeleteAll() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	m.keys = make(map[string]*SEKey)
 	return nil
 }

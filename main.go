@@ -88,17 +88,22 @@ func main() {
 		debugLogger = log.New(os.Stderr, "debug: ", log.Ltime)
 	}
 
+	store, err := DefaultKeyStore()
+	if err != nil {
+		log.Fatalf("Failed to initialize key store: %v\n", err)
+	}
+
 	switch {
 	case *createKey != "":
-		cmdCreate(*createKey, !*noTouch, !*software, *postHook)
+		cmdCreate(store, *createKey, !*noTouch, !*software, *postHook)
 	case *listKeys:
-		cmdList()
+		cmdList(store)
 	case *deleteKey != "":
-		cmdDelete(*deleteKey)
+		cmdDelete(store, *deleteKey)
 	case *deleteAll:
-		cmdDeleteAll()
+		cmdDeleteAll(store)
 	case *socketPath != "":
-		cmdRun(*socketPath)
+		cmdRun(store, *socketPath)
 	default:
 		flag.Usage()
 		os.Exit(1)
@@ -121,22 +126,12 @@ func validateLabel(label string) error {
 	return nil
 }
 
-func cmdCreate(label string, requireTouch bool, useSE bool, postHookCmd string) {
+func cmdCreate(store KeyStore, label string, requireTouch bool, useSE bool, postHookCmd string) {
 	if err := validateLabel(label); err != nil {
 		log.Fatalf("Error: %v\n", err)
 	}
 
-	// H3: Refuse to create if a key with the same label exists.
-	existing, err := ListSEKeys()
-	if err == nil {
-		for _, k := range existing {
-			if k.Label == label {
-				log.Fatalf("Error: key with label '%s' already exists. Delete it first or choose a different name.\n", label)
-			}
-		}
-	}
-
-	key, err := GenerateSEKey(label, requireTouch, useSE)
+	key, err := store.Generate(label, requireTouch, useSE)
 	if err != nil {
 		log.Fatalf("Failed to generate key: %v\n", err)
 	}
@@ -219,8 +214,8 @@ func writePubKeyFile(label, pubKeyStr string) string {
 	return pubFile
 }
 
-func cmdList() {
-	keys, err := ListSEKeys()
+func cmdList(store KeyStore) {
+	keys, err := store.List()
 	if err != nil {
 		log.Fatalf("Failed to list keys: %v\n", err)
 	}
@@ -246,15 +241,15 @@ func cmdList() {
 	}
 }
 
-func cmdDelete(label string) {
-	if err := DeleteSEKey(label); err != nil {
+func cmdDelete(store KeyStore, label string) {
+	if err := store.Delete(label); err != nil {
 		log.Fatalf("Failed to delete key: %v\n", err)
 	}
 	fmt.Printf("Key '%s' deleted.\n", label)
 }
 
-func cmdDeleteAll() {
-	if err := DeleteAllSEKeys(); err != nil {
+func cmdDeleteAll(store KeyStore) {
+	if err := store.DeleteAll(); err != nil {
 		log.Fatalf("Failed to delete keys: %v\n", err)
 	}
 	fmt.Println("All keys deleted.")
@@ -269,7 +264,7 @@ func isSocketInUse(path string) bool {
 	return true
 }
 
-func cmdRun(socketPath string) {
+func cmdRun(store KeyStore, socketPath string) {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		log.Println("Warning: touchid-agent is meant to run as a background daemon.")
 		log.Println("Running multiple instances is likely to lead to conflicts.")
@@ -281,7 +276,7 @@ func cmdRun(socketPath string) {
 		log.Fatalf("Another agent is already listening on %s\n", socketPath)
 	}
 
-	a := &Agent{store: &RealKeyStore{}}
+	a := &Agent{store: store}
 
 	// H2: Graceful shutdown on SIGTERM/SIGINT; SIGHUP refreshes.
 	sigCh := make(chan os.Signal, 1)

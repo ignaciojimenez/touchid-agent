@@ -23,12 +23,42 @@ import (
 	"unsafe"
 )
 
+type Backend int
+
+const (
+	BackendSecureEnclave Backend = iota
+	BackendSoftware
+)
+
+func (b Backend) String() string {
+	switch b {
+	case BackendSecureEnclave:
+		return "secure-enclave"
+	case BackendSoftware:
+		return "software"
+	default:
+		return fmt.Sprintf("backend(%d)", int(b))
+	}
+}
+
+func parseBackend(s string) (Backend, error) {
+	switch s {
+	case "secure-enclave":
+		return BackendSecureEnclave, nil
+	case "software":
+		return BackendSoftware, nil
+	default:
+		return 0, fmt.Errorf("unknown backend %q", s)
+	}
+}
+
 type SEKey struct {
 	Label        string
+	Backend      Backend
 	RequireTouch bool
 	publicKey    *ecdsa.PublicKey
 	keyData      []byte
-	signFn       func(tag string, digest []byte) ([]byte, error)
+	signFn       func(label string, digest []byte) ([]byte, error)
 }
 
 func (k *SEKey) Public() crypto.PublicKey { return k.publicKey }
@@ -41,9 +71,16 @@ func (k *SEKey) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, e
 		return nil, fmt.Errorf("digest must be 32 bytes (SHA-256), got %d", len(digest))
 	}
 	if len(k.keyData) == 0 {
-		return nil, errors.New("key has no associated SE blob")
+		return nil, errors.New("key has no associated blob")
 	}
-	return seSign(k.keyData, digest)
+	switch k.Backend {
+	case BackendSecureEnclave:
+		return seSign(k.keyData, digest)
+	case BackendSoftware:
+		return nil, errors.New("software keys arrive in Phase 4")
+	default:
+		return nil, fmt.Errorf("unknown backend %d", k.Backend)
+	}
 }
 
 func seSign(keyData, digest []byte) ([]byte, error) {
@@ -66,7 +103,9 @@ func seSign(keyData, digest []byte) ([]byte, error) {
 	return C.GoBytes(unsafe.Pointer(sigOut), C.int(sigLen)), nil
 }
 
-func GenerateSEKey(label string, requireTouch bool, useSE bool) (*SEKey, error) {
+// generateSEKey is the cgo entry point used by the keystore. It returns the
+// raw SEP blob and parsed public key; persistence is the caller's job.
+func generateSEKey(requireTouch bool) (keyData []byte, pub *ecdsa.PublicKey, err error) {
 	touchFlag := C.int(0)
 	if requireTouch {
 		touchFlag = C.int(1)
@@ -84,25 +123,19 @@ func GenerateSEKey(label string, requireTouch bool, useSE bool) (*SEKey, error) 
 	if rc != 0 {
 		msg := C.GoString(errStr)
 		C.free(unsafe.Pointer(errStr))
-		return nil, fmt.Errorf("generate key: %s", msg)
+		return nil, nil, fmt.Errorf("generate key: %s", msg)
 	}
 	defer C.free(unsafe.Pointer(keyDataOut))
 	defer C.free(unsafe.Pointer(pubOut))
 
-	keyData := C.GoBytes(unsafe.Pointer(keyDataOut), C.int(keyDataLen))
+	keyData = C.GoBytes(unsafe.Pointer(keyDataOut), C.int(keyDataLen))
 	pubRaw := C.GoBytes(unsafe.Pointer(pubOut), C.int(pubLen))
 
-	pub, err := parseECPublicKey(pubRaw)
+	pub, err = parseECPublicKey(pubRaw)
 	if err != nil {
-		return nil, fmt.Errorf("parse public key: %w", err)
+		return nil, nil, fmt.Errorf("parse public key: %w", err)
 	}
-
-	return &SEKey{
-		Label:        label,
-		RequireTouch: requireTouch,
-		publicKey:    pub,
-		keyData:      keyData,
-	}, nil
+	return keyData, pub, nil
 }
 
 func parseECPublicKey(raw []byte) (*ecdsa.PublicKey, error) {
@@ -119,23 +152,13 @@ func parseECPublicKey(raw []byte) (*ecdsa.PublicKey, error) {
 	}, nil
 }
 
-// Phase 1 stubs: persistence and listing arrive in Phase 3.
-
-func ListSEKeys() ([]*SEKey, error) {
-	return nil, nil
-}
-
-func DeleteSEKey(label string) error {
-	return errors.New("delete: not implemented in Phase 1 spike")
-}
-
-func DeleteAllSEKeys() error {
-	return errors.New("delete-all: not implemented in Phase 1 spike")
-}
-
-func classifyKeychainError(label string, err error) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("signing key %q: %w", label, err)
+func marshalECPublicKey(pub *ecdsa.PublicKey) []byte {
+	// Uncompressed EC point: 0x04 || x (32 bytes) || y (32 bytes).
+	out := make([]byte, 65)
+	out[0] = 0x04
+	xb := pub.X.Bytes()
+	yb := pub.Y.Bytes()
+	copy(out[1+(32-len(xb)):33], xb)
+	copy(out[33+(32-len(yb)):65], yb)
+	return out
 }

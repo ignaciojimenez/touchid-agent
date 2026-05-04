@@ -128,7 +128,7 @@ func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Signat
 
 		sig, err := signer.Sign(rand.Reader, data)
 		if err != nil {
-			return nil, classifyKeychainError(k.Label, err)
+			return nil, fmt.Errorf("sign with key %s: %w", k.Label, err)
 		}
 		debugf("Sign: success for key %s", k.Label)
 		return sig, nil
