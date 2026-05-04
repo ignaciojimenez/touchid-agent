@@ -149,7 +149,7 @@ func TestAgentSocket_MultipleClients(t *testing.T) {
 				return
 			}
 			if len(keys) != 1 {
-				errs <- err
+				errs <- fmt.Errorf("expected 1 key, got %d", len(keys))
 			}
 		}()
 	}
