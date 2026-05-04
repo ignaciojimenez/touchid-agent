@@ -31,7 +31,7 @@ func startTestAgent(t *testing.T) (agent.ExtendedAgent, string, func()) {
 
 	store := NewMockKeyStore()
 	a := &Agent{store: store}
-	store.Generate("integration-test", false, false)
+	store.Generate("integration-test", false)
 
 	l, err := net.Listen("unix", sock)
 	if err != nil {
@@ -111,7 +111,7 @@ func TestAgentSocket_MultipleClients(t *testing.T) {
 
 	store := NewMockKeyStore()
 	a := &Agent{store: store}
-	store.Generate("multi-client", false, false)
+	store.Generate("multi-client", false)
 
 	l, err := net.Listen("unix", sock)
 	if err != nil {

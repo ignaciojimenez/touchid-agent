@@ -32,15 +32,12 @@ runtime at `/usr/lib/swift/` (no Swift dylibs need to be bundled).
 
 ## Code signing
 
-Ad-hoc signing (the default) produces a binary that supports software-
-backed keys. This is sufficient for development and testing; software
-keys do not require any Apple-issued identity.
-
-Secure Enclave key creation requires a Developer ID-signed binary
-because the hardened runtime + secure timestamp combination is what
-lets AMFI run the binary at all. **No entitlements** are claimed; the
-SEP is reached via CryptoKit, which bypasses the data-protection
-keychain entirely.
+Ad-hoc signing (the default) produces a binary suitable for development
+and running tests. Secure Enclave key creation requires a Developer
+ID-signed binary because the hardened runtime + secure timestamp
+combination is what lets AMFI run the binary at all. **No entitlements**
+are claimed; the SEP is reached via CryptoKit, which bypasses the
+data-protection keychain entirely.
 
 ```bash
 make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
@@ -51,18 +48,3 @@ List available signing identities:
 ```bash
 security find-identity -v -p codesigning
 ```
-
-## Feature availability by signing mode
-
-| Feature | Ad-hoc (`-`) | Developer ID |
-|---------|:------------:|:------------:|
-| Software key (`-software -no-touch`) | yes | yes |
-| Secure Enclave key, no Touch ID (`-no-touch`) | no | yes |
-| Secure Enclave key, Touch ID (default) | no | yes |
-
-`-software` requires `-no-touch`. Software-backed keys with Touch ID
-are not supported: enforcing biometry on a key whose private material
-sits on disk would require a custom encryption-with-LAContext scheme
-whose security gain is questionable. Users wanting biometry should use
-the SE-backed default (which is strictly better than software+biometry
-in every dimension).

@@ -13,14 +13,8 @@ import (
 	"testing"
 )
 
-// writeTestKeyfile drops a valid keyfile JSON for an ad-hoc software key into
-// the store directory. Lets us exercise List/Delete/DeleteAll without going
-// near the SEP.
-func writeTestKeyfile(t *testing.T, dir, label string, requireTouch bool, backend Backend) {
+func writeTestKeyfile(t *testing.T, dir, label string, requireTouch bool) {
 	t.Helper()
-	if backend == BackendSoftware {
-		t.Cleanup(func() { _ = keychainDelete(label) })
-	}
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +22,6 @@ func writeTestKeyfile(t *testing.T, dir, label string, requireTouch bool, backen
 	rec := keyfile{
 		Version:      keyfileVersion,
 		Label:        label,
-		Backend:      backend.String(),
 		RequireTouch: requireTouch,
 		CreatedAt:    "2026-01-01T00:00:00Z",
 		KeyData:      base64.StdEncoding.EncodeToString(priv.D.Bytes()),
@@ -69,9 +62,9 @@ func TestFilesystemKeyStore_ListMissingDir(t *testing.T) {
 
 func TestFilesystemKeyStore_ListMultipleSorted(t *testing.T) {
 	dir := t.TempDir()
-	writeTestKeyfile(t, dir, "zeta", true, BackendSecureEnclave)
-	writeTestKeyfile(t, dir, "alpha", false, BackendSecureEnclave)
-	writeTestKeyfile(t, dir, "mu", true, BackendSecureEnclave)
+	writeTestKeyfile(t, dir, "zeta", true)
+	writeTestKeyfile(t, dir, "alpha", false)
+	writeTestKeyfile(t, dir, "mu", true)
 
 	s := &FilesystemKeyStore{Dir: dir}
 	keys, err := s.List()
@@ -91,7 +84,7 @@ func TestFilesystemKeyStore_ListMultipleSorted(t *testing.T) {
 
 func TestFilesystemKeyStore_ListSkipsMalformed(t *testing.T) {
 	dir := t.TempDir()
-	writeTestKeyfile(t, dir, "good", true, BackendSecureEnclave)
+	writeTestKeyfile(t, dir, "good", true)
 	if err := os.WriteFile(filepath.Join(dir, "broken.json"), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -111,14 +104,10 @@ func TestFilesystemKeyStore_ListSkipsMalformed(t *testing.T) {
 
 func TestFilesystemKeyStore_ListRejectsLabelMismatch(t *testing.T) {
 	dir := t.TempDir()
-	// Keyfile claims label "claimed" but is stored as renamed.json - load
-	// must reject this (defends against directory traversal and stale
-	// filenames after a manual rename).
 	priv, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rec := keyfile{
 		Version:      keyfileVersion,
 		Label:        "claimed",
-		Backend:      BackendSoftware.String(),
 		RequireTouch: false,
 		CreatedAt:    "2026-01-01T00:00:00Z",
 		KeyData:      base64.StdEncoding.EncodeToString(priv.D.Bytes()),
@@ -141,7 +130,6 @@ func TestFilesystemKeyStore_ListRejectsLabelMismatch(t *testing.T) {
 
 func TestFilesystemKeyStore_DeleteIdempotent(t *testing.T) {
 	s := &FilesystemKeyStore{Dir: t.TempDir()}
-	// Deleting a key that does not exist must succeed (idempotent CLI).
 	if err := s.Delete("ghost"); err != nil {
 		t.Errorf("Delete on missing key should be nil, got %v", err)
 	}
@@ -149,7 +137,7 @@ func TestFilesystemKeyStore_DeleteIdempotent(t *testing.T) {
 
 func TestFilesystemKeyStore_DeleteRemovesFile(t *testing.T) {
 	dir := t.TempDir()
-	writeTestKeyfile(t, dir, "victim", true, BackendSecureEnclave)
+	writeTestKeyfile(t, dir, "victim", true)
 	s := &FilesystemKeyStore{Dir: dir}
 
 	if err := s.Delete("victim"); err != nil {
@@ -162,9 +150,8 @@ func TestFilesystemKeyStore_DeleteRemovesFile(t *testing.T) {
 
 func TestFilesystemKeyStore_DeleteAll(t *testing.T) {
 	dir := t.TempDir()
-	writeTestKeyfile(t, dir, "a", true, BackendSecureEnclave)
-	writeTestKeyfile(t, dir, "b", false, BackendSoftware)
-	// Foreign file - must be left alone.
+	writeTestKeyfile(t, dir, "a", true)
+	writeTestKeyfile(t, dir, "b", false)
 	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -188,13 +175,10 @@ func TestFilesystemKeyStore_DeleteAll(t *testing.T) {
 
 func TestFilesystemKeyStore_GenerateRefusesOverwrite(t *testing.T) {
 	dir := t.TempDir()
-	writeTestKeyfile(t, dir, "taken", true, BackendSecureEnclave)
+	writeTestKeyfile(t, dir, "taken", true)
 	s := &FilesystemKeyStore{Dir: dir}
 
-	// useSE=true would normally trigger an SE call, but the existence
-	// check fires first - so this exercises the collision path without
-	// ever touching the SEP.
-	_, err := s.Generate("taken", true, true)
+	_, err := s.Generate("taken", true)
 	if err == nil {
 		t.Fatal("expected error for existing label")
 	}
@@ -233,11 +217,8 @@ func TestFilesystemKeyStore_DeleteRejectsPathTraversal(t *testing.T) {
 }
 
 func TestFilesystemKeyStore_GenerateMissingDirIsAnError(t *testing.T) {
-	// Generate against a non-existent dir surfaces the OS error rather
-	// than silently MkdirAll'ing - DefaultKeyStore is the only blessed
-	// path that should be creating directories.
 	s := &FilesystemKeyStore{Dir: filepath.Join(t.TempDir(), "missing")}
-	_, err := s.Generate("k", true, true)
+	_, err := s.Generate("k", true)
 	if err == nil {
 		t.Fatal("expected error generating into missing dir")
 	}

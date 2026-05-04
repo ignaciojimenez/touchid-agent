@@ -36,43 +36,4 @@ int se_sign(
     char **error_out
 );
 
-// Generate a software-backed P-256 signing key (no Secure Enclave).
-// key_data_out: 32-byte raw private scalar (rawRepresentation).
-// pubkey_out:   uncompressed EC point, 65 bytes (0x04 || X || Y).
-int sw_generate(
-    uint8_t **key_data_out, size_t *key_data_len,
-    uint8_t **pubkey_out,   size_t *pubkey_len,
-    char **error_out
-);
-
-// Sign a 32-byte SHA-256 digest with a software P-256 key blob.
-int sw_sign(
-    const uint8_t *key_data, size_t key_data_len,
-    const uint8_t *digest,   size_t digest_len,
-    uint8_t **sig_out,       size_t *sig_len,
-    char **error_out
-);
-
-// Store a software key blob in the macOS Keychain, protected by
-// kSecAttrAccessibleWhenUnlockedThisDeviceOnly. Overwrites if exists.
-int sw_keychain_store(
-    const char *label,
-    const uint8_t *key_data, size_t key_data_len,
-    char **error_out
-);
-
-// Load a software key blob from the macOS Keychain.
-int sw_keychain_load(
-    const char *label,
-    uint8_t **key_data_out, size_t *key_data_len,
-    char **error_out
-);
-
-// Delete a software key blob from the macOS Keychain.
-// Returns success if the item does not exist.
-int sw_keychain_delete(
-    const char *label,
-    char **error_out
-);
-
 #endif

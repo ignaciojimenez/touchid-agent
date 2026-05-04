@@ -84,32 +84,12 @@ func TestParseECPublicKey_CompressedPoint(t *testing.T) {
 }
 
 func TestParseECPublicKey_OffCurve(t *testing.T) {
-	// Valid length and prefix but the point (1, 1) is not on P-256.
 	raw := make([]byte, 65)
 	raw[0] = 0x04
-	raw[32] = 1 // x = 1
-	raw[64] = 1 // y = 1
+	raw[32] = 1
+	raw[64] = 1
 	_, err := parseECPublicKey(raw)
 	if err == nil {
 		t.Error("should reject off-curve point")
-	}
-}
-
-func TestBackend_StringRoundTrip(t *testing.T) {
-	cases := []Backend{BackendSecureEnclave, BackendSoftware}
-	for _, b := range cases {
-		got, err := parseBackend(b.String())
-		if err != nil {
-			t.Errorf("parseBackend(%q) error: %v", b.String(), err)
-		}
-		if got != b {
-			t.Errorf("parseBackend(%q) = %v, want %v", b.String(), got, b)
-		}
-	}
-}
-
-func TestBackend_ParseUnknown(t *testing.T) {
-	if _, err := parseBackend("hsm-yolo"); err == nil {
-		t.Error("parseBackend should reject unknown backend strings")
 	}
 }

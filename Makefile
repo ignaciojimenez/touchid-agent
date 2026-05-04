@@ -1,19 +1,14 @@
 PREFIX ?= /usr/local
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
-# CODESIGN_IDENTITY controls code signing and determines feature availability.
+# CODESIGN_IDENTITY controls code signing.
 #
 #   Ad-hoc (default, CODESIGN_IDENTITY=-):
-#     Supports: software keys without Touch ID (-software -no-touch).
 #     Good for local development and testing.
 #
 #   Developer ID (CODESIGN_IDENTITY="Developer ID Application: ..."):
-#     Supports: all features (Secure Enclave, Touch ID, software keys).
+#     Required for Secure Enclave + Touch ID.
 #     Signed with hardened runtime + secure timestamp (notarization-ready).
-#     No entitlements: CryptoKit's SecureEnclave API talks to the SEP
-#     directly without inserting items into the data-protection keychain,
-#     so no provisioning profile is required.
-#     Required for production builds.
 #
 # List available signing identities:
 #   security find-identity -v -p codesigning
@@ -37,16 +32,13 @@ SWIFT_FLAGS := -O -whole-module-optimization \
                -runtime-compatibility-version none \
                -target $(SWIFT_TARGET)
 
-.PHONY: build build-corp sign install install-completions install-launchd universal clean test test-cover
+.PHONY: build sign install install-completions install-launchd universal clean test test-cover
 
 $(SWIFT_LIB): $(SWIFT_SOURCES)
 	swiftc $(SWIFT_FLAGS) -o $(SWIFT_LIB) $(SWIFT_SOURCES)
 
 build: $(SWIFT_LIB)
 	go build -ldflags "-X main.Version=$(VERSION)" -o touchid-agent .
-
-build-corp: $(SWIFT_LIB)
-	go build -tags nosoftware -ldflags "-X main.Version=$(VERSION)" -o touchid-agent .
 
 sign: build
 ifeq ($(CODESIGN_IDENTITY),-)

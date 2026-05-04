@@ -17,9 +17,9 @@ links a Swift static library that talks to the SEP through CryptoKit.
   Swift archive via cgo and the `secureenclave_bridge.h` header.
 - **macOS 11+** — CryptoKit's `SecureEnclave.P256` API needs that
   deployment target; we set it explicitly via `-target *-apple-macos11`.
-- **Code signing** — ad-hoc signing (default) supports software keys
-  via `-software -no-touch`. Developer ID signing is required for
-  Secure Enclave keys; **no entitlements** are used.
+- **Code signing** — ad-hoc signing (default) works for development.
+  Developer ID signing is required for Secure Enclave keys;
+  **no entitlements** are used.
 - **No test for real SE** — `keystore_mock_test.go` provides a mock
   `KeyStore` with real ECDSA signing for unit tests; SE-backed flows
   are exercised manually after `make sign CODESIGN_IDENTITY="..."`.
@@ -43,15 +43,12 @@ export SSH_AUTH_SOCK=/tmp/.touchid-agent.sock
 ## Architecture
 
 ```
-main.go                  CLI + daemon (flag parsing, socket lifecycle)
-agent.go                 SSH agent protocol (golang.org/x/crypto/ssh/agent)
-hook.go                  Post-create hook execution
-keystore.go              KeyStore interface — testability boundary
-keystore_fs.go           Filesystem-backed KeyStore (~/.touchid-agent/keys/)
-secureenclave.swift      CryptoKit bridge: SE + software P-256
+main.go                  CLI, daemon lifecycle, post-create hooks
+agent.go                 SSH agent protocol, notifications
+keystore_fs.go           KeyStore interface + filesystem implementation
+secureenclave.swift      CryptoKit bridge: SE P-256
 secureenclave_bridge.h   Cgo / Swift C ABI
-secureenclave_darwin.go  Go side of the cgo bridge
-notify_darwin.go         Touch ID reminder notification
+secureenclave_darwin.go  Go side of the cgo bridge, Key type
 contrib/hooks/           Example provisioning hooks (GitHub, etc.)
 contrib/completions/     Shell completions (bash, zsh)
 contrib/plist/           launchd service template

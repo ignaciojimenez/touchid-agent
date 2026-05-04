@@ -12,25 +12,25 @@ import (
 
 type MockKeyStore struct {
 	mu   sync.Mutex
-	keys map[string]*SEKey
+	keys map[string]*Key
 }
 
 func NewMockKeyStore() *MockKeyStore {
-	return &MockKeyStore{keys: make(map[string]*SEKey)}
+	return &MockKeyStore{keys: make(map[string]*Key)}
 }
 
-func (m *MockKeyStore) List() ([]*SEKey, error) {
+func (m *MockKeyStore) List() ([]*Key, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var result []*SEKey
+	var result []*Key
 	for _, k := range m.keys {
 		result = append(result, k)
 	}
 	return result, nil
 }
 
-func (m *MockKeyStore) Generate(label string, requireTouch bool, useSE bool) (*SEKey, error) {
+func (m *MockKeyStore) Generate(label string, requireTouch bool) (*Key, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -43,14 +43,8 @@ func (m *MockKeyStore) Generate(label string, requireTouch bool, useSE bool) (*S
 		return nil, err
 	}
 
-	backend := BackendSoftware
-	if useSE {
-		backend = BackendSecureEnclave
-	}
-
-	key := &SEKey{
+	key := &Key{
 		Label:        label,
-		Backend:      backend,
 		RequireTouch: requireTouch,
 		publicKey:    &priv.PublicKey,
 		signFn: func(_ string, digest []byte) ([]byte, error) {
@@ -71,6 +65,6 @@ func (m *MockKeyStore) Delete(label string) error {
 func (m *MockKeyStore) DeleteAll() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.keys = make(map[string]*SEKey)
+	m.keys = make(map[string]*Key)
 	return nil
 }

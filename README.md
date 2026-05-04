@@ -21,12 +21,6 @@ For Secure Enclave and Touch ID features, sign with a Developer ID:
 make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 ```
 
-| Feature | Ad-hoc (default) | Developer ID |
-|---------|:----------------:|:------------:|
-| Software key (`-software -no-touch`) | yes | yes |
-| Secure Enclave key, no Touch ID | no | yes |
-| Secure Enclave key, Touch ID (default) | no | yes |
-
 ## Quick start
 
 ```bash
@@ -70,9 +64,6 @@ Private keys are generated inside the Secure Enclave and cannot be exported.
 The agent process never holds key material -- all signing is delegated to
 CryptoKit, which talks to the SEP directly. Keys are persisted as opaque
 SEP-wrapped blobs at `~/.touchid-agent/keys/<label>.json` (mode 0600).
-Software-backed keys (`-software -no-touch`) live as raw scalars in the
-same files; they exist as an escape hatch for ad-hoc-signed builds and
-are not hardware-isolated.
 
 See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the full analysis.
 

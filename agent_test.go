@@ -34,7 +34,7 @@ func TestAgent_List_Empty(t *testing.T) {
 
 func TestAgent_List_SingleKey(t *testing.T) {
 	a, store := newTestAgent(t)
-	store.Generate("test", true, false)
+	store.Generate("test", true)
 
 	keys, err := a.List()
 	if err != nil {
@@ -53,8 +53,8 @@ func TestAgent_List_SingleKey(t *testing.T) {
 
 func TestAgent_List_MultipleKeys(t *testing.T) {
 	a, store := newTestAgent(t)
-	store.Generate("ssh", true, false)
-	store.Generate("git", false, false)
+	store.Generate("ssh", true)
+	store.Generate("git", false)
 
 	keys, err := a.List()
 	if err != nil {
@@ -67,7 +67,7 @@ func TestAgent_List_MultipleKeys(t *testing.T) {
 
 func TestAgent_Signers(t *testing.T) {
 	a, store := newTestAgent(t)
-	store.Generate("test", true, false)
+	store.Generate("test", true)
 
 	signers, err := a.Signers()
 	if err != nil {
@@ -80,7 +80,7 @@ func TestAgent_Signers(t *testing.T) {
 
 func TestAgent_Sign_MatchingKey(t *testing.T) {
 	a, store := newTestAgent(t)
-	key, _ := store.Generate("test", false, false)
+	key, _ := store.Generate("test", false)
 
 	sshPub, err := ssh.NewPublicKey(key.publicKey)
 	if err != nil {
@@ -115,7 +115,7 @@ func TestAgent_Sign_NoMatchingKey(t *testing.T) {
 
 func TestAgent_SignWithFlags_Zero(t *testing.T) {
 	a, store := newTestAgent(t)
-	key, _ := store.Generate("test", false, false)
+	key, _ := store.Generate("test", false)
 
 	sshPub, _ := ssh.NewPublicKey(key.publicKey)
 	data := sha256.Sum256([]byte("test data"))
@@ -181,8 +181,8 @@ func TestAgent_Extension_Rejected(t *testing.T) {
 
 func TestAgent_ConcurrentList(t *testing.T) {
 	a, store := newTestAgent(t)
-	store.Generate("key1", true, false)
-	store.Generate("key2", false, false)
+	store.Generate("key1", true)
+	store.Generate("key2", false)
 
 	var wg sync.WaitGroup
 	errs := make(chan error, 10)
@@ -206,7 +206,7 @@ func TestAgent_ConcurrentList(t *testing.T) {
 
 func TestAgent_ConcurrentSign(t *testing.T) {
 	a, store := newTestAgent(t)
-	key, _ := store.Generate("test", false, false)
+	key, _ := store.Generate("test", false)
 	sshPub, _ := ssh.NewPublicKey(key.publicKey)
 
 	var wg sync.WaitGroup
@@ -232,8 +232,8 @@ func TestAgent_ConcurrentSign(t *testing.T) {
 
 func TestAgent_ConcurrentSign_DifferentKeys(t *testing.T) {
 	a, store := newTestAgent(t)
-	key1, _ := store.Generate("key-a", false, false)
-	key2, _ := store.Generate("key-b", false, false)
+	key1, _ := store.Generate("key-a", false)
+	key2, _ := store.Generate("key-b", false)
 	pub1, _ := ssh.NewPublicKey(key1.publicKey)
 	pub2, _ := ssh.NewPublicKey(key2.publicKey)
 

@@ -44,7 +44,7 @@ func TestDebugf_AgentListLogs(t *testing.T) {
 	defer func() { debugLogger = old }()
 
 	a, store := newTestAgent(t)
-	store.Generate("dbg-test", false, false)
+	store.Generate("dbg-test", false)
 
 	_, err := a.List()
 	if err != nil {

@@ -14,7 +14,6 @@ _touchid-agent() {
         '-l[Run the agent, listening on the UNIX socket at PATH]:socket path:_files' \
         '-create[Create a new SSH key with the given label]:label:' \
         '-no-touch[Do not require Touch ID for this key]' \
-        '-software[Use software-backed Keychain key (requires -no-touch)]' \
         '-post-hook[Run command after key creation]:command:_command_names' \
         '-list[List all managed keys]' \
         '-delete[Delete the key with the given label]:label:' \

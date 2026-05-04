@@ -1,15 +1,12 @@
 # Architecture
 
 ```
-main.go                  CLI and daemon entrypoint
-agent.go                 SSH agent protocol implementation
-hook.go                  Post-create hook execution
-keystore.go              KeyStore interface (testability boundary)
-keystore_fs.go           Filesystem-backed KeyStore (~/.touchid-agent/keys/)
-secureenclave.swift      CryptoKit bridge: SE + software P-256 sign/generate
+main.go                  CLI, daemon lifecycle, post-create hooks
+agent.go                 SSH agent protocol, notifications
+keystore_fs.go           KeyStore interface + filesystem implementation
+secureenclave.swift      CryptoKit bridge: SE P-256 sign/generate
 secureenclave_bridge.h   C header for the cgo / Swift boundary
-secureenclave_darwin.go  Go side of the cgo bridge
-notify_darwin.go         Touch ID reminder notification
+secureenclave_darwin.go  Go side of the cgo bridge, Key type
 contrib/hooks/           Example provisioning hooks (GitHub, etc.)
 contrib/completions/     Shell completions (bash, zsh)
 contrib/plist/           launchd service template
@@ -26,9 +23,8 @@ contrib/plist/           launchd service template
 ```
 
 Each `<label>.json` file embeds a SEP-wrapped `dataRepresentation` blob
-(for SE keys) or a 32-byte raw private scalar (for software keys), plus
-metadata and a cached uncompressed EC public point so `-list` does not
-have to round-trip through the SEP.
+plus metadata and a cached uncompressed EC public point so `-list` does
+not have to round-trip through the SEP.
 
 ## Why CryptoKit
 
@@ -45,7 +41,7 @@ claim that entitlement. CryptoKit talks to the SEP directly without
 involving the keychain, which is what lets us ship a flat
 Developer-ID-signed Mach-O with no entitlements at all.
 
-The cost is that persistence becomes the agent's responsibility — keys
+The cost is that persistence becomes the agent's responsibility -- keys
 live as files in `~/.touchid-agent/keys/` instead of in the macOS
 keychain. The same architectural choice is made by
 [`age-plugin-se`](https://github.com/remko/age-plugin-se).
@@ -58,6 +54,6 @@ keychain. The same architectural choice is made by
 | Per-operation authentication | Touch ID required for each signing request when `.biometryAny` is set on key creation. |
 | Drop-in replacement | Standard SSH agent protocol. Set `SSH_AUTH_SOCK` and go. |
 | Multiple named keys | One key per purpose (e.g., `ssh` for auth, `git` for signing). |
-| No secrets in memory | For SE keys, all signing delegates to CryptoKit / SEP; the agent never sees the private key. |
+| No secrets in memory | All signing delegates to CryptoKit / SEP; the agent never sees the private key. |
 | Creation self-test | `-create` always signs and verifies a synthetic digest before reporting success, forcing the Touch ID prompt at create-time and proving the access control is correctly applied. |
 | macOS only | By design. The Secure Enclave is Apple hardware. |

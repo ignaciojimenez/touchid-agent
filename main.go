@@ -12,9 +12,11 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -49,11 +51,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage:\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -l PATH\n")
 		fmt.Fprintf(os.Stderr, "        Run the agent, listening on the UNIX socket at PATH.\n\n")
-		fmt.Fprintf(os.Stderr, "  touchid-agent -create NAME [-no-touch] [-software] [-post-hook CMD]\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -create NAME [-no-touch] [-post-hook CMD]\n")
 		fmt.Fprintf(os.Stderr, "        Create a new SSH key in the Secure Enclave.\n")
 		fmt.Fprintf(os.Stderr, "        By default, Touch ID is required for every signing operation.\n")
 		fmt.Fprintf(os.Stderr, "        Use -no-touch to allow signing without biometric confirmation.\n")
-		fmt.Fprintf(os.Stderr, "        Use -software for a Keychain-backed key (no Secure Enclave).\n")
 		fmt.Fprintf(os.Stderr, "        Use -post-hook to run an executable after key creation.\n")
 		fmt.Fprintf(os.Stderr, "        The value must be a path to an executable (not a shell expression).\n")
 		fmt.Fprintf(os.Stderr, "        The executable receives key details via environment variables:\n")
@@ -65,8 +66,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        Delete the key with the given label.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -delete-all\n")
 		fmt.Fprintf(os.Stderr, "        Delete all managed keys.\n\n")
-		fmt.Fprintf(os.Stderr, "  touchid-agent -migrate\n")
-		fmt.Fprintf(os.Stderr, "        Migrate software keys from on-disk storage to the macOS Keychain.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
 	}
@@ -74,12 +73,10 @@ func main() {
 	socketPath := flag.String("l", "", "agent: path of the UNIX socket to listen on")
 	createKey := flag.String("create", "", "create a new key with the given label")
 	noTouch := flag.Bool("no-touch", false, "create: do not require Touch ID for this key")
-	software := flag.Bool("software", false, "create: use software-backed Keychain key instead of Secure Enclave")
 	postHook := flag.String("post-hook", "", "create: run command after key creation")
 	listKeys := flag.Bool("list", false, "list all managed keys")
 	deleteKey := flag.String("delete", "", "delete the key with the given label")
 	deleteAll := flag.Bool("delete-all", false, "delete all managed keys")
-	migrate := flag.Bool("migrate", false, "migrate software keys to Keychain")
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
 	showVersion := flag.Bool("version", false, "print version and exit")
 
@@ -100,13 +97,6 @@ func main() {
 		debugLogger = log.New(os.Stderr, "debug: ", log.Ltime)
 	}
 
-	if *createKey != "" {
-		if err := validateCreateFlags(*software, *noTouch); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
 	store, err := DefaultKeyStore()
 	if err != nil {
 		log.Fatalf("Failed to initialize key store: %v\n", err)
@@ -114,40 +104,19 @@ func main() {
 
 	switch {
 	case *createKey != "":
-		cmdCreate(store, *createKey, !*noTouch, !*software, *postHook)
+		cmdCreate(store, *createKey, !*noTouch, *postHook)
 	case *listKeys:
 		cmdList(store)
 	case *deleteKey != "":
 		cmdDelete(store, *deleteKey)
 	case *deleteAll:
 		cmdDeleteAll(store)
-	case *migrate:
-		cmdMigrate(store)
 	case *socketPath != "":
 		cmdRun(store, *socketPath)
 	default:
 		flag.Usage()
 		os.Exit(1)
 	}
-}
-
-// validateCreateFlags rejects the only disallowed flag combo: -software
-// without -no-touch. Touch ID enforcement on software keys would require
-// a custom encryption-with-LAContext scheme; the trade-off is not worth
-// it because users wanting biometry already get the strictly-better
-// SE-backed default.
-func validateCreateFlags(software, noTouch bool) error {
-	if software && !softwareBackendEnabled {
-		return errors.New(
-			"-software is disabled in this build (compiled with nosoftware tag)")
-	}
-	if software && !noTouch {
-		return errors.New(
-			"-software requires -no-touch (Touch ID is not supported on " +
-				"software-backed keys; use the default -create for an SE key " +
-				"with Touch ID enforced by the Secure Enclave Processor)")
-	}
-	return nil
 }
 
 func validateLabel(label string) error {
@@ -166,12 +135,12 @@ func validateLabel(label string) error {
 	return nil
 }
 
-func cmdCreate(store KeyStore, label string, requireTouch bool, useSE bool, postHookCmd string) {
+func cmdCreate(store KeyStore, label string, requireTouch bool, postHookCmd string) {
 	if err := validateLabel(label); err != nil {
 		log.Fatalf("Error: %v\n", err)
 	}
 
-	key, err := store.Generate(label, requireTouch, useSE)
+	key, err := store.Generate(label, requireTouch)
 	if err != nil {
 		log.Fatalf("Failed to generate key: %v\n", err)
 	}
@@ -199,25 +168,14 @@ func cmdCreate(store KeyStore, label string, requireTouch bool, useSE bool, post
 
 	if postHookCmd != "" {
 		fmt.Printf("\nRunning post-create hook: %s\n", postHookCmd)
-		hookEnv := HookEnv{
-			Label:         label,
-			PubKey:        fmt.Sprintf("%s touchid-agent:%s", pubKeyStr, label),
-			PubKeyFile:    pubFile,
-			TouchRequired: requireTouch,
-		}
-		if err := runPostHook(postHookCmd, hookEnv); err != nil {
+		if err := runPostHook(postHookCmd, label, pubKeyStr, pubFile, requireTouch); err != nil {
 			log.Fatalf("Hook failed: %v\n", err)
 		}
 		fmt.Println("Hook completed successfully.")
 	}
 }
 
-// selfTestKey signs a fixed digest with the freshly generated key and
-// verifies the signature locally. Forces a Touch ID prompt for biometry-
-// gated keys (the user expects this ceremony at create time) and proves
-// end-to-end that the access control + signing path are wired correctly
-// before we tell the user the key is ready to use.
-func selfTestKey(key *SEKey, requireTouch bool) error {
+func selfTestKey(key *Key, requireTouch bool) error {
 	if requireTouch {
 		fmt.Fprintln(os.Stderr, "Confirming Touch ID enforcement (please authenticate)...")
 	}
@@ -232,16 +190,13 @@ func selfTestKey(key *SEKey, requireTouch bool) error {
 	return nil
 }
 
-// classifySignError maps common LAError and CryptoKit failures to
-// actionable messages. The error strings originate in the Swift bridge
-// and contain fragments from LocalAuthentication / CryptoKit.
 func classifySignError(err error) error {
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "userCancel") || strings.Contains(msg, "User cancel") || strings.Contains(msg, "LAError -2"):
 		return fmt.Errorf("Touch ID authentication was cancelled; the key was created successfully but not verified — run -list to confirm")
 	case strings.Contains(msg, "biometryNotAvailable") || strings.Contains(msg, "LAError -6"):
-		return fmt.Errorf("Touch ID hardware is not available on this Mac; use -software -no-touch for a software-backed key instead")
+		return fmt.Errorf("Touch ID hardware is not available on this Mac; use -no-touch for a key without biometric confirmation")
 	case strings.Contains(msg, "biometryNotEnrolled") || strings.Contains(msg, "LAError -7"):
 		return fmt.Errorf("no fingerprints enrolled in Touch ID; enroll in System Settings > Touch ID, then retry")
 	case strings.Contains(msg, "biometryLockout") || strings.Contains(msg, "LAError -8"):
@@ -272,6 +227,25 @@ func writePubKeyFile(label, pubKeyStr string) string {
 	}
 	fmt.Printf("\nPublic key written to: %s\n", pubFile)
 	return pubFile
+}
+
+func runPostHook(hookCmd, label, pubKeyStr, pubFile string, touchRequired bool) error {
+	if hookCmd == "" {
+		return nil
+	}
+	cmd := exec.Command(hookCmd)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("TOUCHID_AGENT_LABEL=%s", label),
+		fmt.Sprintf("TOUCHID_AGENT_PUBKEY=%s touchid-agent:%s", pubKeyStr, label),
+		fmt.Sprintf("TOUCHID_AGENT_PUBKEY_FILE=%s", pubFile),
+		fmt.Sprintf("TOUCHID_AGENT_TOUCH_REQUIRED=%s", strconv.FormatBool(touchRequired)),
+	)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("post-create hook failed: %w", err)
+	}
+	return nil
 }
 
 func cmdList(store KeyStore) {
@@ -311,36 +285,11 @@ func cmdDelete(store KeyStore, label string) {
 	fmt.Printf("Key '%s' deleted.\n", label)
 }
 
-func cmdMigrate(store KeyStore) {
-	fs, ok := store.(*FilesystemKeyStore)
-	if !ok {
-		log.Fatalln("migrate is only supported with the filesystem keystore")
-	}
-	n, err := fs.MigrateToKeychain()
-	if err != nil {
-		log.Fatalf("Migration failed: %v\n", err)
-	}
-	if n == 0 {
-		fmt.Println("No keys needed migration.")
-	} else {
-		fmt.Printf("Migrated %d software key(s) to the Keychain.\n", n)
-	}
-}
-
 func cmdDeleteAll(store KeyStore) {
 	if err := store.DeleteAll(); err != nil {
 		log.Fatalf("Failed to delete keys: %v\n", err)
 	}
 	fmt.Println("All keys deleted.")
-}
-
-func isSocketInUse(path string) bool {
-	conn, err := net.DialTimeout("unix", path, 500*time.Millisecond)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
 }
 
 func cmdRun(store KeyStore, socketPath string) {
@@ -350,14 +299,8 @@ func cmdRun(store KeyStore, socketPath string) {
 		log.Println("Consider using the launchd service.")
 	}
 
-	// H8: Check for another running instance before replacing the socket.
-	if isSocketInUse(socketPath) {
-		log.Fatalf("Another agent is already listening on %s\n", socketPath)
-	}
-
 	a := &Agent{store: store}
 
-	// H2: Graceful shutdown on SIGTERM/SIGINT; SIGHUP refreshes.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 
@@ -372,7 +315,6 @@ func cmdRun(store KeyStore, socketPath string) {
 		log.Fatalln("Failed to listen on UNIX socket:", err)
 	}
 
-	// Belt-and-suspenders: explicit chmod after umask-protected creation.
 	if err := os.Chmod(socketPath, 0600); err != nil {
 		log.Printf("Warning: could not set socket permissions: %v", err)
 	}

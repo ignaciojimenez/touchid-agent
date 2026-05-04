@@ -10,7 +10,7 @@ import (
 )
 
 func TestRunPostHook_EmptyCommand(t *testing.T) {
-	err := runPostHook("", HookEnv{Label: "test"})
+	err := runPostHook("", "test", "", "", true)
 	if err != nil {
 		t.Errorf("empty hook should be no-op, got: %v", err)
 	}
@@ -31,14 +31,13 @@ func TestRunPostHook_SetsEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env := HookEnv{
-		Label:         "my-key",
-		PubKey:        "fake-key-type PLACEHOLDER touchid-agent:my-key",
-		PubKeyFile:    "/home/user/.ssh/touchid-agent-my-key.pub",
-		TouchRequired: true,
-	}
-
-	if err := runPostHook(script, env); err != nil {
+	err := runPostHook(script,
+		"my-key",
+		"fake-key-type PLACEHOLDER",
+		"/home/user/.ssh/touchid-agent-my-key.pub",
+		true,
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,8 +72,8 @@ func TestRunPostHook_TouchRequiredFalse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env := HookEnv{Label: "git", TouchRequired: false}
-	if err := runPostHook(script, env); err != nil {
+	err := runPostHook(script, "git", "", "", false)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,7 +94,7 @@ func TestRunPostHook_NonZeroExit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := runPostHook(script, HookEnv{Label: "test"})
+	err := runPostHook(script, "test", "", "", true)
 	if err == nil {
 		t.Error("expected error from failing hook")
 	}
@@ -105,7 +104,7 @@ func TestRunPostHook_NonZeroExit(t *testing.T) {
 }
 
 func TestRunPostHook_NotFound(t *testing.T) {
-	err := runPostHook("/nonexistent/hook.sh", HookEnv{Label: "test"})
+	err := runPostHook("/nonexistent/hook.sh", "test", "", "", true)
 	if err == nil {
 		t.Error("expected error for missing hook")
 	}
@@ -119,10 +118,8 @@ func TestRunPostHook_NotExecutable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := runPostHook(script, HookEnv{Label: "test"})
+	err := runPostHook(script, "test", "", "", true)
 	if err == nil {
 		t.Error("expected error for non-executable hook")
 	}
 }
-
-

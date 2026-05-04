@@ -11,6 +11,8 @@ import (
 	"io"
 	"log"
 	"net"
+	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,8 +35,6 @@ var _ agent.ExtendedAgent = &Agent{}
 
 const connIdleTimeout = 10 * time.Minute
 
-// idleConn resets the deadline on every read, converting the timeout
-// from an absolute wall-clock cutoff into a true idle timer.
 type idleConn struct {
 	net.Conn
 	timeout time.Duration
@@ -105,10 +105,7 @@ func (a *Agent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
 	return a.SignWithFlags(key, data, 0)
 }
 
-// SignatureFlags control RSA algorithm negotiation (SHA-256/512) and are
-// irrelevant for ECDSA P-256 which always uses SHA-256. Safe to ignore.
 func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
-	// Phase 1: find the matching key under a short read lock.
 	a.storeMu.RLock()
 	keys, err := a.store.List()
 	a.storeMu.RUnlock()
@@ -116,7 +113,7 @@ func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Signat
 		return nil, fmt.Errorf("could not list keys: %w", err)
 	}
 
-	var matched *SEKey
+	var matched *Key
 	for _, k := range keys {
 		pk, err := ssh.NewPublicKey(k.publicKey)
 		if err != nil {
@@ -131,8 +128,6 @@ func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Signat
 		return nil, errors.New("no matching key found")
 	}
 
-	// Phase 2: acquire only this key's lock for the signing operation.
-	// Independent keys can sign concurrently (parallel Touch ID prompts).
 	mu := a.keyLock(matched.Label)
 	mu.Lock()
 	defer mu.Unlock()
@@ -176,3 +171,17 @@ func (a *Agent) Remove(key ssh.PublicKey) error { return ErrOperationUnsupported
 func (a *Agent) RemoveAll() error               { return ErrOperationUnsupported }
 func (a *Agent) Lock(passphrase []byte) error   { return ErrOperationUnsupported }
 func (a *Agent) Unlock(passphrase []byte) error { return ErrOperationUnsupported }
+
+func escapeForAppleScript(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "`", "")
+	s = strings.ReplaceAll(s, "$(", "")
+	return s
+}
+
+func showNotification(message string) {
+	message = escapeForAppleScript(message)
+	script := fmt.Sprintf(`display notification "%s" with title "touchid-agent"`, message)
+	exec.Command("osascript", "-e", script).Run()
+}
