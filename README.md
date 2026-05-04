@@ -62,7 +62,7 @@ touchid-agent -delete-all
 | Running as a launchd service | [docs/launchd.md](docs/launchd.md) |
 | Migrating from yubikey-agent | [docs/migration.md](docs/migration.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
-| Threat model | [THREAT_MODEL.md](THREAT_MODEL.md) |
+| Threat model | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) |
 
 ## Security
 
@@ -74,8 +74,8 @@ Software-backed keys (`-software -no-touch`) live as raw scalars in the
 same files; they exist as an escape hatch for ad-hoc-signed builds and
 are not hardware-isolated.
 
-See [THREAT_MODEL.md](THREAT_MODEL.md) for the full analysis.
+See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the full analysis.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/ignaciojimenez/touchid-agent/blob/main/LICENSE)
