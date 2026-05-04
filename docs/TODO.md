@@ -38,56 +38,27 @@ Until `brew install touchid-agent` works, the migration story for a
 yubikey-agent user is "clone the repo and run make" — that is not a
 drop-in feel. This is the single biggest UX gap. Resolved by §2 below.
 
-### 1.2 launchd plist usability
+### 1.2 launchd plist usability ✓
 
-`contrib/plist/touchid-agent.plist` currently hardcodes
-`/usr/local/bin/touchid-agent` and `/Users/CHANGEME/...`. Two problems:
+Plist template now uses `__BINARY__` and `__HOME__` placeholders. A
+`make install-launchd` target generates the plist with correct paths.
+Socket moved to `~/Library/Caches/touchid-agent/agent.sock` (per-user,
+matching yubikey-agent convention). See `docs/launchd.md`.
 
-- Apple Silicon Homebrew installs at `/opt/homebrew/bin`, so the path is
-  wrong out of the box for half of users.
-- `CHANGEME` is a setup paper-cut. yubikey-agent's brew formula
-  generates the plist post-install with the user's home and the brew
-  prefix substituted in; we should do the same.
+### 1.3 Side-by-side migration map in `docs/migration.md` ✓
 
-**Action:** decide whether to ship a sed-substitution `make
-install-launchd` target or have the brew formula generate the plist.
-Brew formula is the better long-term answer; keep the static plist as a
-manual-install reference. While we're here, switch the socket path
-default from `/tmp/.touchid-agent.sock` to
-`$HOME/Library/Containers/touchid-agent/Data/io.touchid-agent.sock` (or
-similar per-user location), matching yubikey-agent's convention.
-
-### 1.3 Side-by-side migration map in `docs/migration.md`
-
-The doc currently explains the *what*. Add a command-by-command table:
-
-| yubikey-agent | touchid-agent |
-|---|---|
-| `brew install yubikey-agent` | `brew install touchid-agent` |
-| `yubikey-agent -setup` | `touchid-agent -create ssh` |
-| (single key only) | `touchid-agent -create git -no-touch` |
-| `~/Library/Caches/...sock` | (per `IdentityAgent` line in `~/.ssh/config`) |
-| Touch YubiKey on each ssh | Touch ID on each ssh |
-
-Plus the hard-stop note: **YubiKey keys cannot be migrated**; you must
-re-create on touchid-agent and update authorized_keys on every host.
+Command-by-command mapping table added covering install, create, list,
+delete, start/stop, socket path, and SSH config. Includes the hard-stop
+note about non-migratable keys.
 
 ## 2. Homebrew readiness
 
-### 2.1 Universal binary
+### 2.1 Universal binary ✓
 
-Currently host-arch only (single `swiftc -target` and one `go build`).
-For Homebrew distribution we need both arm64 and x86_64. Per spec §8.5:
-
-1. Build `libsecureenclave.a` for both architectures and `lipo -create`
-   them.
-2. Build the Go binary twice (`GOARCH=amd64` and `GOARCH=arm64`),
-   linking against the universal `.a`.
-3. `lipo -create` the two Go binaries into a single fat Mach-O.
-
-**Action:** add a `make universal` target that produces
-`touchid-agent` as a fat binary. Keep `make build` as host-arch for
-fast dev loop.
+`make universal` target added. Builds `libsecureenclave.a` for both
+arm64 and x86_64 via `swiftc`, lipo-merges them, builds Go for both
+`GOARCH` values, and produces a single fat Mach-O. `make build` remains
+host-arch for the fast dev loop.
 
 ### 2.2 Notarization
 
@@ -133,59 +104,42 @@ done.
 
 ## 3. Migration loose ends
 
-### 3.3 Update shell completions for `-software` rule
+### 3.3 Update shell completions for `-software` rule ✓
 
-`contrib/completions/touchid-agent.{bash,zsh}` still list `-software`
-as a free-standing flag. They won't error users, but they could include
-a comment that `-software` requires `-no-touch`. Low priority.
+Bash completion has a comment noting `-software` requires `-no-touch`.
+Zsh description updated to `(requires -no-touch)`. Both also updated
+for new `-version` flag.
 
-### 3.4 Fix self-test error wording on recoverable failures
+### 3.4 Fix self-test error wording on recoverable failures ✓
 
-If biometry is locked out at create time, the self-test fires `Sign:`
-through CryptoKit and gets back a verbose `LAError -8 "Biometry is
-locked out"`. We currently log `"The key is unusable; this likely
-indicates a bug. Please report."` — which is wrong for this case.
+`classifySignError()` maps LAError codes (-2 userCancel, -4
+passcodeNotSet, -6 biometryNotAvailable, -7 biometryNotEnrolled, -8
+biometryLockout) to actionable messages. The generic "likely a bug"
+wording is removed. The same classifier is used in both the self-test
+and agent sign paths. Covered by `TestClassifySignError`.
 
-**Action:** classify the common `LAError` codes (`-2 userCancel`, `-6
-biometryNotAvailable`, `-7 biometryNotEnrolled`, `-8 biometryLockout`)
-and produce friendly errors. For lockout specifically, mention that
-unlocking the Mac with password recovers Touch ID. The key file is
-already on disk and valid; the message should reflect that it's
-temporarily unusable, not corrupted.
+### 3.5 Decide on `-post-hook` semantics ✓
 
-### 3.5 Decide on `-post-hook` semantics
-
-Pre-existing: `exec.Command(hookCmd)` treats the whole flag value as a
-single executable path, so `-post-hook 'echo $TOUCHID_AGENT_PUBKEY'`
-fails (no executable named `echo $TOUCHID_AGENT_PUBKEY`). Two options:
-
-- **Option A:** wrap in `sh -c` to support inline shell snippets. Matches
-  the spirit of the README/example. Adds a small attack surface (shell
-  metachars in the user-supplied flag) but the flag is user-supplied
-  anyway.
-- **Option B:** document explicitly that `-post-hook` takes a path to
-  an executable, and fix the docs/examples. Lower-risk; matches current
-  behavior.
-
-Option B is the conservative choice and what's already implemented; just
-needs the docs to match.
+Option B chosen: `-post-hook` takes a path to an executable, not a
+shell expression. `docs/hooks.md`, CLI usage text, and flag description
+updated to document this explicitly.
 
 ## 4. Polish & deferred
 
 These do not block the two main goals. Capture and revisit.
 
-- [ ] Error classification beyond §3.4 — wrap the worst CryptoKit
-      `Error Domain= ...NSDebugDescription=... NSLocalizedDescription=...`
-      blobs with cleaner messages.
-- [ ] `docs/git-signing.md` could include the SSH allowed-signers file
+- [x] Error classification beyond §3.4 — `classifySignError()` used in
+      both self-test and agent sign paths. Unknown errors still pass
+      through verbatim.
+- [x] `docs/git-signing.md` now includes the SSH allowed-signers file
       setup so `git log --show-signature` works locally.
 - [ ] Optional `touchid-agent -migrate-keychain` tool that reads the
       pre-CryptoKit keychain items via legacy code and writes JSON
       files. Spec §10.4 punted on this; users were told to re-create.
       Reconsider only if anyone actually upgrades from a pre-migration
       install.
-- [ ] Consider a `touchid-agent -version` flag (currently shown in the
-      stderr banner only).
+- [x] `touchid-agent -version` flag added (prints version to stdout
+      and exits).
 - [ ] launchd: investigate `Sockets` key for socket-activation rather
       than `RunAtLoad + KeepAlive`. Lower idle footprint, faster
       first-connection latency.

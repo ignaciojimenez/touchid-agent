@@ -1,24 +1,49 @@
 # Running as a launchd service
 
-Copy the plist and load it:
+## Recommended: make install-launchd
 
 ```bash
-cp contrib/plist/touchid-agent.plist ~/Library/LaunchAgents/
+make install-launchd
 launchctl load ~/Library/LaunchAgents/touchid-agent.plist
 ```
 
-Edit the plist to replace `CHANGEME` with your username. The service runs
-at login, restarts on failure, and logs to `~/Library/Logs/touchid-agent.log`.
+This generates a plist with correct paths for your system (binary
+location, home directory, socket and log paths) and writes it to
+`~/Library/LaunchAgents/touchid-agent.plist`.
 
-To point SSH at the agent, add to `~/.zshrc`:
+The socket is placed at `~/Library/Caches/touchid-agent/agent.sock`
+(a per-user location, matching yubikey-agent convention).
+
+## Manual setup
+
+If you prefer to configure the plist yourself, copy the template and
+replace the `__BINARY__` and `__HOME__` placeholders:
 
 ```bash
-export SSH_AUTH_SOCK="/tmp/.touchid-agent.sock"
+cp contrib/plist/touchid-agent.plist ~/Library/LaunchAgents/
+sed -i '' -e "s|__BINARY__|$(which touchid-agent)|g" \
+          -e "s|__HOME__|$HOME|g" \
+    ~/Library/LaunchAgents/touchid-agent.plist
+launchctl load ~/Library/LaunchAgents/touchid-agent.plist
+```
+
+## Pointing SSH at the agent
+
+Add to `~/.zshrc`:
+
+```bash
+export SSH_AUTH_SOCK="$HOME/Library/Caches/touchid-agent/agent.sock"
 ```
 
 Or use per-host configuration in `~/.ssh/config`:
 
 ```
-Host github.com
-    IdentityAgent /tmp/.touchid-agent.sock
+Host *
+    IdentityAgent ~/Library/Caches/touchid-agent/agent.sock
+```
+
+## Unloading
+
+```bash
+launchctl unload ~/Library/LaunchAgents/touchid-agent.plist
 ```

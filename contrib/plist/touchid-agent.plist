@@ -1,22 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  touchid-agent launchd service template.
+
+  This is a reference template. Prefer `make install-launchd` which
+  generates a plist with correct paths for your system automatically.
+
+  If editing manually, replace __BINARY__ and __HOME__ below.
+-->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>touchid-agent</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/touchid-agent</string>
+    <string>__BINARY__</string>
     <string>-l</string>
-    <string>/tmp/.touchid-agent.sock</string>
+    <string>__HOME__/Library/Caches/touchid-agent/agent.sock</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key>
   <string>Background</string>
   <key>StandardErrorPath</key>
-  <string>/Users/CHANGEME/Library/Logs/touchid-agent.log</string>
+  <string>__HOME__/Library/Logs/touchid-agent.log</string>
   <key>StandardOutPath</key>
-  <string>/Users/CHANGEME/Library/Logs/touchid-agent.log</string>
+  <string>__HOME__/Library/Logs/touchid-agent.log</string>
 </dict>
 </plist>

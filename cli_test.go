@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -65,6 +66,33 @@ func TestValidateLabel_SpecialChars(t *testing.T) {
 		if err := validateLabel(label); err != nil {
 			t.Errorf("validateLabel(%q) = %v, want nil", label, err)
 		}
+	}
+}
+
+func TestClassifySignError(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		want    string
+		notWant string
+	}{
+		{"user cancel", "LAError -2: userCancel", "cancelled", "bug"},
+		{"biometry not available", "LAError -6: biometryNotAvailable", "not available", ""},
+		{"biometry not enrolled", "LAError -7: biometryNotEnrolled", "enroll", ""},
+		{"biometry lockout", "LAError -8: biometryLockout", "locked out", ""},
+		{"passcode not set", "LAError -4: passcodeNotSet", "password", ""},
+		{"unknown error", "some random CryptoKit error", "sign:", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := classifySignError(errors.New(tc.input))
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("classifySignError(%q) = %q, want substring %q", tc.input, err.Error(), tc.want)
+			}
+			if tc.notWant != "" && strings.Contains(err.Error(), tc.notWant) {
+				t.Errorf("classifySignError(%q) = %q, should not contain %q", tc.input, err.Error(), tc.notWant)
+			}
+		})
 	}
 }
 

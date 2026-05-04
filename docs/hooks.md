@@ -1,7 +1,8 @@
 # Post-create hooks
 
-Run a command after key creation with `-post-hook`. The hook receives key
-details via environment variables:
+Run an executable after key creation with `-post-hook PATH`. The value
+must be a path to an executable file, not a shell expression. The
+executable receives key details via environment variables:
 
 | Variable | Description |
 |----------|-------------|
@@ -9,6 +10,10 @@ details via environment variables:
 | `TOUCHID_AGENT_PUBKEY` | Full SSH public key string |
 | `TOUCHID_AGENT_PUBKEY_FILE` | Path to the `.pub` file |
 | `TOUCHID_AGENT_TOUCH_REQUIRED` | `true` or `false` |
+
+The hook is executed directly (not through a shell), so inline shell
+syntax like `echo $VAR` or pipes will not work. If you need shell
+features, write a script file and pass its path.
 
 ## Examples
 

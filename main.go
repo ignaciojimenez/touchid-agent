@@ -54,8 +54,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        By default, Touch ID is required for every signing operation.\n")
 		fmt.Fprintf(os.Stderr, "        Use -no-touch to allow signing without biometric confirmation.\n")
 		fmt.Fprintf(os.Stderr, "        Use -software for a Keychain-backed key (no Secure Enclave).\n")
-		fmt.Fprintf(os.Stderr, "        Use -post-hook to run a command after key creation. The command\n")
-		fmt.Fprintf(os.Stderr, "        receives key details via environment variables:\n")
+		fmt.Fprintf(os.Stderr, "        Use -post-hook to run an executable after key creation.\n")
+		fmt.Fprintf(os.Stderr, "        The value must be a path to an executable (not a shell expression).\n")
+		fmt.Fprintf(os.Stderr, "        The executable receives key details via environment variables:\n")
 		fmt.Fprintf(os.Stderr, "          TOUCHID_AGENT_LABEL, TOUCHID_AGENT_PUBKEY,\n")
 		fmt.Fprintf(os.Stderr, "          TOUCHID_AGENT_PUBKEY_FILE, TOUCHID_AGENT_TOUCH_REQUIRED\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -list\n")
@@ -64,6 +65,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        Delete the key with the given label.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -delete-all\n")
 		fmt.Fprintf(os.Stderr, "        Delete all managed keys.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
+		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
 	}
 
 	socketPath := flag.String("l", "", "agent: path of the UNIX socket to listen on")
@@ -75,8 +78,14 @@ func main() {
 	deleteKey := flag.String("delete", "", "delete the key with the given label")
 	deleteAll := flag.Bool("delete-all", false, "delete all managed keys")
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
+	showVersion := flag.Bool("version", false, "print version and exit")
 
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("touchid-agent %s\n", Version)
+		return
+	}
 
 	if flag.NArg() > 0 {
 		flag.Usage()
@@ -159,8 +168,7 @@ func cmdCreate(store KeyStore, label string, requireTouch bool, useSE bool, post
 	}
 
 	if err := selfTestKey(key, requireTouch); err != nil {
-		log.Fatalf("Key was generated but failed self-test: %v\n"+
-			"The key is unusable; this likely indicates a bug. Please report.\n", err)
+		log.Fatalf("Key was generated but failed self-test: %v\n", err)
 	}
 
 	sshPub, err := ssh.NewPublicKey(key.publicKey)
@@ -207,12 +215,33 @@ func selfTestKey(key *SEKey, requireTouch bool) error {
 	digest := sha256.Sum256([]byte("touchid-agent: creation self-test"))
 	sig, err := key.Sign(nil, digest[:], nil)
 	if err != nil {
-		return fmt.Errorf("sign: %w", err)
+		return classifySignError(err)
 	}
 	if !ecdsa.VerifyASN1(key.publicKey, digest[:], sig) {
 		return errors.New("signature verification failed")
 	}
 	return nil
+}
+
+// classifySignError maps common LAError and CryptoKit failures to
+// actionable messages. The error strings originate in the Swift bridge
+// and contain fragments from LocalAuthentication / CryptoKit.
+func classifySignError(err error) error {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "userCancel") || strings.Contains(msg, "User cancel") || strings.Contains(msg, "LAError -2"):
+		return fmt.Errorf("Touch ID authentication was cancelled; the key was created successfully but not verified — run -list to confirm")
+	case strings.Contains(msg, "biometryNotAvailable") || strings.Contains(msg, "LAError -6"):
+		return fmt.Errorf("Touch ID hardware is not available on this Mac; use -software -no-touch for a software-backed key instead")
+	case strings.Contains(msg, "biometryNotEnrolled") || strings.Contains(msg, "LAError -7"):
+		return fmt.Errorf("no fingerprints enrolled in Touch ID; enroll in System Settings > Touch ID, then retry")
+	case strings.Contains(msg, "biometryLockout") || strings.Contains(msg, "LAError -8"):
+		return fmt.Errorf("Touch ID is locked out after too many failed attempts; unlock your Mac with your password to recover Touch ID, then retry — the key on disk is valid")
+	case strings.Contains(msg, "passcodeNotSet") || strings.Contains(msg, "LAError -4"):
+		return fmt.Errorf("no system password set; Touch ID requires a login password — set one in System Settings > Users & Groups")
+	default:
+		return fmt.Errorf("sign: %w", err)
+	}
 }
 
 func writePubKeyFile(label, pubKeyStr string) string {

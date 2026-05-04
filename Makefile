@@ -37,7 +37,7 @@ SWIFT_FLAGS := -O -whole-module-optimization \
                -runtime-compatibility-version none \
                -target $(SWIFT_TARGET)
 
-.PHONY: build sign install install-completions clean test test-cover
+.PHONY: build sign install install-completions install-launchd universal clean test test-cover
 
 $(SWIFT_LIB): $(SWIFT_SOURCES)
 	swiftc $(SWIFT_FLAGS) -o $(SWIFT_LIB) $(SWIFT_SOURCES)
@@ -61,6 +61,33 @@ install-completions:
 	install -m 644 contrib/completions/touchid-agent.bash $(PREFIX)/etc/bash_completion.d/touchid-agent
 	install -d $(PREFIX)/share/zsh/site-functions
 	install -m 644 contrib/completions/touchid-agent.zsh $(PREFIX)/share/zsh/site-functions/_touchid-agent
+
+SOCKET_DIR  = $(HOME)/Library/Caches/touchid-agent
+SOCKET_PATH = $(SOCKET_DIR)/agent.sock
+PLIST_SRC   = contrib/plist/touchid-agent.plist
+PLIST_DST   = $(HOME)/Library/LaunchAgents/touchid-agent.plist
+BINARY_PATH = $(realpath touchid-agent)
+
+install-launchd: build sign
+	@if [ -z "$(BINARY_PATH)" ]; then echo "error: build touchid-agent first" >&2; exit 1; fi
+	mkdir -p "$(SOCKET_DIR)"
+	mkdir -p "$(HOME)/Library/LaunchAgents"
+	mkdir -p "$(HOME)/Library/Logs"
+	sed -e 's|__BINARY__|$(PREFIX)/bin/touchid-agent|g' \
+	    -e 's|__HOME__|$(HOME)|g' \
+	    $(PLIST_SRC) > $(PLIST_DST)
+	@echo "Plist written to $(PLIST_DST)"
+	@echo "Load with: launchctl load $(PLIST_DST)"
+	@echo "Socket:    $(SOCKET_PATH)"
+
+universal:
+	swiftc $(subst $(SWIFT_TARGET),arm64-apple-macos11,$(SWIFT_FLAGS)) -o libsecureenclave-arm64.a $(SWIFT_SOURCES)
+	swiftc $(subst $(SWIFT_TARGET),x86_64-apple-macos11,$(SWIFT_FLAGS)) -o libsecureenclave-x86_64.a $(SWIFT_SOURCES)
+	lipo -create libsecureenclave-arm64.a libsecureenclave-x86_64.a -output $(SWIFT_LIB)
+	CGO_ENABLED=1 GOARCH=arm64 go build -ldflags "-X main.Version=$(VERSION)" -o touchid-agent-arm64 .
+	CGO_ENABLED=1 GOARCH=amd64 go build -ldflags "-X main.Version=$(VERSION)" -o touchid-agent-amd64 .
+	lipo -create touchid-agent-arm64 touchid-agent-amd64 -output touchid-agent
+	rm -f libsecureenclave-arm64.a libsecureenclave-x86_64.a touchid-agent-arm64 touchid-agent-amd64
 
 test: $(SWIFT_LIB)
 	go test -v -race -count=1 ./...
