@@ -121,6 +121,67 @@ Security-relevant consequences of this approach:
   other than the originating Mac (and even on that Mac, signing requires
   Touch ID for biometry-gated keys).
 
+## Attestation and the trust model
+
+There is **no cryptographic attestation** that a touchid-agent public
+key was generated inside the Secure Enclave. A remote verifier (a Git
+server, an SSH gateway, an IdP) sees only an `ecdsa-sha2-nistp256` public
+key. It cannot distinguish between:
+
+- a key generated in the SEP and protected by Touch ID,
+- a software-generated key dropped into a tampered build of the agent,
+- an attacker-generated key uploaded to the user's account.
+
+This is a platform limitation, not a touchid-agent bug:
+
+- **Apple does not expose an attestation chain for SE keys.** Unlike
+  YubiKey's PIV attestation (which signs the new key with a
+  manufacturer-rooted certificate that the verifier can chain to Yubico),
+  CryptoKit and Security.framework provide no equivalent for SE-backed
+  keys on macOS. iOS has `SecKeyCreateAttestation`, which produces a
+  chain back to Apple's Anonymous Attestation CA, but it is unavailable
+  on macOS.
+- **DeviceCheck / App Attest** is iOS-only and attests an *app
+  installation*, not an individual key. Even on iOS it would not solve
+  this problem.
+
+### What this means in practice
+
+| Trust assumption | Implication |
+|---|---|
+| The endpoint is enrolled and managed | If MDM-attested device posture (e.g. Jamf, Kandji, Microsoft Intune) gates access to remote services, the system already trusts the endpoint. SE-key attestation would be redundant. |
+| The endpoint is unmanaged | A remote verifier cannot tell that a touchid-agent public key is hardware-backed. Compromise resistance equals "user account on the Mac is not compromised + the binary is the genuine one." |
+| The user is the threat | If you are defending against the legitimate user exfiltrating a key, the SEP genuinely prevents this even without attestation: the private key cannot leave the device. The user can register a *different* (software) key, but they cannot leak the SE one. |
+
+### Recommended mitigations for corporate deployment
+
+1. **Pair touchid-agent with device posture checks.** Enforce SSH access
+   only from MDM-enrolled, encrypted, up-to-date Macs. Cloudflare
+   Access, Tailscale ACLs, or an SSH CA that requires a short-lived
+   posture-attested certificate are all reasonable patterns.
+2. **Pin the binary.** Distribute touchid-agent through a controlled
+   channel (internal Homebrew tap, MDM-pushed package). Verify the
+   notarization signature at install time:
+   `codesign -dv --verbose=4 /path/to/touchid-agent`. The expected
+   `Authority=` chain ends in `Apple Root CA`.
+3. **Audit log signing events** (see `-audit-log` in `main.go`) and ship
+   the log to a SIEM. SE keys are non-extractable, so a forensic
+   indicator of compromise is a *signing event from a host you do not
+   control*, not key material in the wild.
+4. **Treat each key as scoped.** Use distinct labels for different
+   privilege boundaries (`ssh-prod`, `git-signing`, `ssh-staging`) so a
+   compromised endpoint can be narrowed down by which key was used.
+
+### What attestation would buy you
+
+If Apple shipped SE attestation on macOS tomorrow, the additional
+guarantee would be: *a verifier could prove that this specific public
+key originated from a SEP and is biometry-gated, without trusting the
+agent binary.* That is genuinely useful for unmanaged-endpoint
+zero-trust scenarios. Until then, the trust anchor is the endpoint, and
+touchid-agent's role is to ensure that even on a compromised endpoint
+the key itself cannot be exfiltrated.
+
 ## Out of Scope
 
 - **Physical attacks on the Secure Enclave.** We rely on Apple's
