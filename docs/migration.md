@@ -12,8 +12,8 @@ Steps:
 
 1. While the old binary is still installed, list the keys you want to
    keep: `/usr/local/bin/touchid-agent -list`. Note the labels.
-2. Install the new build: `make install CODESIGN_IDENTITY="Developer ID Application: ..."`.
-   (A Homebrew formula is planned but not yet published — see `docs/TODO.md`.)
+2. Install the new build: `brew install ignaciojimenez/tap/touchid-agent`
+   (or `make install CODESIGN_IDENTITY="Developer ID Application: ..."` if building from source).
 3. Re-create each key: `touchid-agent -create LABEL`. You will get a
    new public key for every label; update any `~/.ssh/authorized_keys`,
    GitHub / GitLab / Bitbucket SSH key entries, code-signing
@@ -41,7 +41,7 @@ Steps:
 
 | Task | yubikey-agent | touchid-agent |
 |------|---------------|---------------|
-| Install | `brew install yubikey-agent` | `make install` (Homebrew formula planned) |
+| Install | `brew install yubikey-agent` | `brew install ignaciojimenez/tap/touchid-agent` |
 | Create key | `yubikey-agent -setup` (single key) | `touchid-agent -create ssh` |
 | Create signing key | (not supported, single key only) | `touchid-agent -create git -no-touch` |
 | List keys | n/a (one key, always loaded) | `touchid-agent -list` |

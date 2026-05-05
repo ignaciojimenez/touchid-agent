@@ -12,16 +12,25 @@ Drop-in replacement for [yubikey-agent](https://github.com/FiloSottile/yubikey-a
 ## Installation
 
 ```bash
-make install
+brew install ignaciojimenez/tap/touchid-agent
 ```
 
-For Secure Enclave and Touch ID features, sign with a Developer ID:
+The formula ships a pre-built, Developer-ID-signed and notarized
+universal binary — no Xcode or Go toolchain required.
+
+### Building from source
+
+Only needed if you want to hack on the code itself. See
+[docs/building.md](docs/building.md) for full details.
 
 ```bash
 make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 ```
 
-## Quick start
+> **Note:** ad-hoc-signed builds (the default `make install`) cannot access
+> the Secure Enclave. A Developer ID is required for production use.
+
+## Usage
 
 ```bash
 # Create a key (Touch ID required per signature)
@@ -50,12 +59,12 @@ touchid-agent -delete-all
 
 | Topic | Link |
 |-------|------|
-| Build variables and signing | [docs/building.md](docs/building.md) |
 | Git commit signing | [docs/git-signing.md](docs/git-signing.md) |
 | Post-create hooks | [docs/hooks.md](docs/hooks.md) |
 | Running as a launchd service | [docs/launchd.md](docs/launchd.md) |
 | Migrating from yubikey-agent | [docs/migration.md](docs/migration.md) |
 | Operational runbook | [docs/runbook.md](docs/runbook.md) |
+| Build variables and signing | [docs/building.md](docs/building.md) |
 | Release process | [docs/release.md](docs/release.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | Threat model | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) |
