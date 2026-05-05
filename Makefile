@@ -173,10 +173,11 @@ test-cover: $(SWIFT_LIB)
 
 # Scan for known-vulnerable dependencies. Mirrors what CI runs.
 vuln:
-	@if ! command -v govulncheck >/dev/null 2>&1; then \
+	@GOBIN="$$(go env GOPATH)/bin"; \
+	if [ ! -x "$$GOBIN/govulncheck" ]; then \
 	  go install golang.org/x/vuln/cmd/govulncheck@v1.1.4; \
-	fi
-	govulncheck ./...
+	fi; \
+	"$$GOBIN/govulncheck" ./...
 
 clean-dist:
 	rm -rf $(DIST_DIR)

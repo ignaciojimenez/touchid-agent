@@ -14,13 +14,13 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func sshPubFromKey(t *testing.T, k *Key) (ssh.PublicKey, error) {
+func sshPubFromKey(t *testing.T, k *Key) ssh.PublicKey {
 	t.Helper()
 	pub, err := ssh.NewPublicKey(k.publicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return pub, nil
+	return pub
 }
 
 func readLines(t *testing.T, path string) []string {
@@ -194,7 +194,7 @@ func TestAgent_AuditLog_OnSignSuccess(t *testing.T) {
 	a := &Agent{store: store, audit: audit}
 
 	key, _ := store.Generate("auditkey", false)
-	pub, _ := sshPubFromKey(t, key)
+	pub := sshPubFromKey(t, key)
 
 	if _, err := a.Sign(pub, []byte("digest-bytes-32-chars-long-paddpd")); err != nil {
 		t.Fatal(err)
@@ -227,7 +227,7 @@ func TestAgent_AuditLog_OnSignFailure(t *testing.T) {
 	store.Generate("present", false)
 	otherStore := NewMockKeyStore()
 	other, _ := otherStore.Generate("absent", false)
-	otherPub, _ := sshPubFromKey(t, other)
+	otherPub := sshPubFromKey(t, other)
 
 	if _, err := a.Sign(otherPub, make([]byte, 32)); err == nil {
 		t.Fatal("expected no-matching-key error")

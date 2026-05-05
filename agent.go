@@ -46,9 +46,9 @@ func (c *idleConn) Read(b []byte) (int, error) {
 	return c.Conn.Read(b)
 }
 
-// connAgent wraps *Agent with the credentials of the connected peer so
-// that signing operations can attribute audit events to the calling
-// process. Other agent methods delegate to the embedded *Agent.
+// connAgent attaches per-connection peer credentials so signing
+// operations can attribute audit events to the calling process. All
+// non-signing methods delegate to the embedded *Agent.
 type connAgent struct {
 	*Agent
 	peer Peer
@@ -57,9 +57,7 @@ type connAgent struct {
 func (a *Agent) serveConn(c net.Conn) {
 	debugf("new client connection from %s", c.RemoteAddr())
 	peer := peerCreds(c)
-	if peer.PID != 0 {
-		debugf("peer creds: pid=%d uid=%d", peer.PID, peer.UID)
-	}
+	debugf("peer creds: pid=%d uid=%d", peer.PID, peer.UID)
 	ca := &connAgent{Agent: a, peer: peer}
 	ic := &idleConn{Conn: c, timeout: connIdleTimeout}
 	if err := agent.ServeAgent(ca, ic); err != io.EOF {
@@ -116,25 +114,22 @@ func (a *Agent) Signers() ([]ssh.Signer, error) {
 }
 
 func (a *Agent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
-	return a.SignWithFlags(key, data, 0)
+	return a.signFor(key, data, Peer{})
 }
 
-func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
-	return a.signFor(key, data, flags, Peer{})
+func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, _ agent.SignatureFlags) (*ssh.Signature, error) {
+	return a.signFor(key, data, Peer{})
 }
 
-// Sign and SignWithFlags on connAgent attach peer credentials to the
-// audit-log record. They delegate the cryptographic work to the
-// embedded *Agent's signFor.
 func (c *connAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
-	return c.signFor(key, data, 0, c.peer)
+	return c.signFor(key, data, c.peer)
 }
 
-func (c *connAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
-	return c.signFor(key, data, flags, c.peer)
+func (c *connAgent) SignWithFlags(key ssh.PublicKey, data []byte, _ agent.SignatureFlags) (*ssh.Signature, error) {
+	return c.signFor(key, data, c.peer)
 }
 
-func (a *Agent) signFor(key ssh.PublicKey, data []byte, _ agent.SignatureFlags, peer Peer) (*ssh.Signature, error) {
+func (a *Agent) signFor(key ssh.PublicKey, data []byte, peer Peer) (*ssh.Signature, error) {
 	a.storeMu.RLock()
 	keys, err := a.store.List()
 	a.storeMu.RUnlock()
