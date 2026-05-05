@@ -5,6 +5,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 #
 #   Ad-hoc (default, CODESIGN_IDENTITY=-):
 #     Good for local development and testing.
+#     NOTE: ad-hoc-signed binaries CANNOT access the Secure Enclave.
 #
 #   Developer ID (CODESIGN_IDENTITY="Developer ID Application: ..."):
 #     Required for Secure Enclave + Touch ID.
@@ -13,6 +14,11 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 # List available signing identities:
 #   security find-identity -v -p codesigning
 CODESIGN_IDENTITY ?= -
+
+# Notarization is opt-in: provide either NOTARY_PROFILE (a keychain profile
+# stored via `xcrun notarytool store-credentials`) or all three of
+# APPLE_ID / APPLE_TEAM_ID / APPLE_PASSWORD. See docs/release.md.
+NOTARY_PROFILE ?=
 
 SWIFT_LIB     := libsecureenclave.a
 SWIFT_MODULE  := SecureEnclaveBridge
@@ -32,7 +38,14 @@ SWIFT_FLAGS := -O -whole-module-optimization \
                -runtime-compatibility-version none \
                -target $(SWIFT_TARGET)
 
-.PHONY: build sign install install-completions install-launchd universal clean test test-cover
+DIST_DIR     := dist
+RELEASE_NAME := touchid-agent-$(VERSION)-darwin-universal
+RELEASE_ZIP  := $(DIST_DIR)/$(RELEASE_NAME).zip
+RELEASE_TGZ  := $(DIST_DIR)/$(RELEASE_NAME).tar.gz
+
+.PHONY: build sign install install-completions install-launchd \
+        universal package notarize release release-notes \
+        clean clean-dist test test-cover
 
 $(SWIFT_LIB): $(SWIFT_SOURCES)
 	swiftc $(SWIFT_FLAGS) -o $(SWIFT_LIB) $(SWIFT_SOURCES)
@@ -84,6 +97,66 @@ universal:
 	lipo -create touchid-agent-arm64 touchid-agent-amd64 -output touchid-agent
 	rm -f libsecureenclave-arm64.a libsecureenclave-x86_64.a touchid-agent-arm64 touchid-agent-amd64
 
+# Package the (already built and signed) binary into a release archive.
+# Run `make universal sign CODESIGN_IDENTITY="Developer ID Application: ..."` first.
+# Produces both .zip (for notarytool) and .tar.gz (for distribution).
+package:
+	@if [ ! -f touchid-agent ]; then \
+	  echo "error: touchid-agent binary not found; run 'make universal sign' first" >&2; \
+	  exit 1; \
+	fi
+	@if codesign -dv touchid-agent 2>&1 | grep -q "adhoc"; then \
+	  echo "error: binary is ad-hoc signed; notarization will reject it. Re-sign with Developer ID." >&2; \
+	  exit 1; \
+	fi
+	mkdir -p $(DIST_DIR)
+	ditto -c -k --keepParent touchid-agent $(RELEASE_ZIP)
+	tar -czf $(RELEASE_TGZ) touchid-agent
+	cd $(DIST_DIR) && shasum -a 256 $(RELEASE_NAME).tar.gz > $(RELEASE_NAME).tar.gz.sha256
+	cd $(DIST_DIR) && shasum -a 256 $(RELEASE_NAME).zip    > $(RELEASE_NAME).zip.sha256
+	@echo
+	@echo "Release artifacts:"
+	@ls -lh $(DIST_DIR)/$(RELEASE_NAME).*
+	@echo
+	@echo "SHA-256 (tar.gz, for Homebrew formula):"
+	@cat $(DIST_DIR)/$(RELEASE_NAME).tar.gz.sha256
+
+# Submit the .zip to Apple's Notary service. Requires `make package` first
+# and either NOTARY_PROFILE=<profile> or APPLE_ID + APPLE_TEAM_ID + APPLE_PASSWORD.
+# Stapling is not supported for flat Mach-O CLI binaries; Gatekeeper checks
+# the notarization ticket online on first launch.
+notarize:
+	@if [ ! -f $(RELEASE_ZIP) ]; then \
+	  echo "error: $(RELEASE_ZIP) not found; run 'make package' first" >&2; \
+	  exit 1; \
+	fi
+ifneq ($(NOTARY_PROFILE),)
+	xcrun notarytool submit $(RELEASE_ZIP) \
+	  --keychain-profile "$(NOTARY_PROFILE)" \
+	  --wait
+else
+	@if [ -z "$(APPLE_ID)" ] || [ -z "$(APPLE_TEAM_ID)" ] || [ -z "$(APPLE_PASSWORD)" ]; then \
+	  echo "error: set NOTARY_PROFILE=<keychain-profile> or APPLE_ID, APPLE_TEAM_ID, APPLE_PASSWORD" >&2; \
+	  exit 1; \
+	fi
+	xcrun notarytool submit $(RELEASE_ZIP) \
+	  --apple-id "$(APPLE_ID)" \
+	  --team-id "$(APPLE_TEAM_ID)" \
+	  --password "$(APPLE_PASSWORD)" \
+	  --wait
+endif
+	@echo
+	@echo "Notarization complete. The .tar.gz at $(RELEASE_TGZ) is ready to publish."
+	@echo "Note: flat Mach-O cannot be stapled; Gatekeeper validates online on first launch."
+
+# End-to-end release pipeline: build universal, sign, package, notarize.
+# Requires CODESIGN_IDENTITY and notarization credentials.
+release: clean-dist universal sign package notarize
+
+# Render a release-notes draft to stdout from git log since the previous tag.
+release-notes:
+	@./scripts/release-notes.sh $(VERSION)
+
 test: $(SWIFT_LIB)
 	go test -v -race -count=1 ./...
 
@@ -91,7 +164,10 @@ test-cover: $(SWIFT_LIB)
 	go test -v -race -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
 
-clean:
+clean-dist:
+	rm -rf $(DIST_DIR)
+
+clean: clean-dist
 	rm -f touchid-agent \
 	      $(SWIFT_LIB) \
 	      $(SWIFT_MODULE).swiftmodule $(SWIFT_MODULE).swiftdoc \
