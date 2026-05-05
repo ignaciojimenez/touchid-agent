@@ -45,7 +45,7 @@ RELEASE_TGZ  := $(DIST_DIR)/$(RELEASE_NAME).tar.gz
 
 .PHONY: build sign install install-completions install-launchd \
         universal package notarize release release-notes \
-        clean clean-dist test test-cover
+        clean clean-dist test test-cover vuln
 
 $(SWIFT_LIB): $(SWIFT_SOURCES)
 	swiftc $(SWIFT_FLAGS) -o $(SWIFT_LIB) $(SWIFT_SOURCES)
@@ -170,6 +170,13 @@ test: $(SWIFT_LIB)
 test-cover: $(SWIFT_LIB)
 	go test -v -race -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
+
+# Scan for known-vulnerable dependencies. Mirrors what CI runs.
+vuln:
+	@if ! command -v govulncheck >/dev/null 2>&1; then \
+	  go install golang.org/x/vuln/cmd/govulncheck@v1.1.4; \
+	fi
+	govulncheck ./...
 
 clean-dist:
 	rm -rf $(DIST_DIR)

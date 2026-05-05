@@ -6,16 +6,34 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: macos-latest
+    # Pinned: macos-latest can flip silently when GitHub rotates the
+    # default. Bump deliberately when retesting on a newer macOS.
+    runs-on: macos-14
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          check-latest: false
+
+      # Verify every module has a matching checksum in go.sum. Catches
+      # tampering with the module cache or go.sum.
+      - run: go mod verify
 
       - run: go vet ./...
 
       - run: make test
+
+      # Scan for known-vulnerable transitive dependencies. Pinned to a
+      # specific version to keep the supply chain deterministic.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          "$(go env GOPATH)/bin/govulncheck" ./...
