@@ -4,15 +4,13 @@
 # Homebrew formula for touchid-agent.
 #
 # This formula installs a pre-built, Developer-ID-signed and notarized
-# binary. It does NOT build from source: ad-hoc signed binaries cannot
-# access the Secure Enclave on macOS, and Homebrew has no Apple
-# Developer ID identity to sign with.
-#
-# Recommended path: host this in a personal tap
-# (e.g. `brew install ignaciojimenez/tap/touchid-agent`). Submission to
-# homebrew-core would require either source-buildability or a notarized
-# bottle, neither of which is currently practical for a Secure-Enclave
-# binary.
+# binary published as a GitHub release artifact. It does NOT build from
+# source: ad-hoc signed binaries cannot access the Secure Enclave on
+# macOS, and Homebrew (whether on a user's machine or in the
+# homebrew-core CI fleet) has no Developer ID identity to sign with.
+# Distribution is therefore via a personal tap that vendors the
+# already-notarized binary — same end-user experience as homebrew-core
+# (`brew install touchid-agent`), just from a private tap.
 #
 # Maintainer release flow:
 #   1. Push a `vX.Y.Z` tag; GitHub Actions builds, signs, notarizes,
