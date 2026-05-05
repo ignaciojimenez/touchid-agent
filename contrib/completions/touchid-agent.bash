@@ -14,10 +14,10 @@ _touchid_agent() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # All top-level flags.
-    local _touchid_agent_flags="-l -create -no-touch -post-hook -list -delete -delete-all -v -version"
+    local _touchid_agent_flags="-l -audit-log -create -no-touch -post-hook -list -delete -delete-all -v -version"
 
     case "${prev}" in
-        -l|-create|-delete|-post-hook)
+        -l|-audit-log|-create|-delete|-post-hook)
             # These flags expect a value; fall through to default completion.
             return 0
             ;;

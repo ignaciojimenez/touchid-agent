@@ -55,6 +55,8 @@ touchid-agent -delete-all
 | Post-create hooks | [docs/hooks.md](docs/hooks.md) |
 | Running as a launchd service | [docs/launchd.md](docs/launchd.md) |
 | Migrating from yubikey-agent | [docs/migration.md](docs/migration.md) |
+| Operational runbook | [docs/runbook.md](docs/runbook.md) |
+| Release process | [docs/release.md](docs/release.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | Threat model | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) |
 

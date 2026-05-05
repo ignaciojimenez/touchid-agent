@@ -24,6 +24,7 @@ type Agent struct {
 	storeMu sync.RWMutex
 	store   KeyStore
 	keyMu   sync.Map // label -> *sync.Mutex
+	audit   *AuditLogger
 }
 
 func (a *Agent) keyLock(label string) *sync.Mutex {
@@ -45,10 +46,23 @@ func (c *idleConn) Read(b []byte) (int, error) {
 	return c.Conn.Read(b)
 }
 
+// connAgent wraps *Agent with the credentials of the connected peer so
+// that signing operations can attribute audit events to the calling
+// process. Other agent methods delegate to the embedded *Agent.
+type connAgent struct {
+	*Agent
+	peer Peer
+}
+
 func (a *Agent) serveConn(c net.Conn) {
 	debugf("new client connection from %s", c.RemoteAddr())
+	peer := peerCreds(c)
+	if peer.PID != 0 {
+		debugf("peer creds: pid=%d uid=%d", peer.PID, peer.UID)
+	}
+	ca := &connAgent{Agent: a, peer: peer}
 	ic := &idleConn{Conn: c, timeout: connIdleTimeout}
-	if err := agent.ServeAgent(a, ic); err != io.EOF {
+	if err := agent.ServeAgent(ca, ic); err != io.EOF {
 		log.Println("Agent client connection ended with error:", err)
 	}
 	debugf("client disconnected")
@@ -106,6 +120,21 @@ func (a *Agent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
 }
 
 func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
+	return a.signFor(key, data, flags, Peer{})
+}
+
+// Sign and SignWithFlags on connAgent attach peer credentials to the
+// audit-log record. They delegate the cryptographic work to the
+// embedded *Agent's signFor.
+func (c *connAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
+	return c.signFor(key, data, 0, c.peer)
+}
+
+func (c *connAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
+	return c.signFor(key, data, flags, c.peer)
+}
+
+func (a *Agent) signFor(key ssh.PublicKey, data []byte, _ agent.SignatureFlags, peer Peer) (*ssh.Signature, error) {
 	a.storeMu.RLock()
 	keys, err := a.store.List()
 	a.storeMu.RUnlock()
@@ -149,14 +178,19 @@ func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Signat
 
 	signer, err := ssh.NewSignerFromKey(matched)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create signer for key %s: %w", matched.Label, err)
+		wrapped := fmt.Errorf("failed to create signer for key %s: %w", matched.Label, err)
+		a.audit.Sign(matched.Label, false, wrapped, peer)
+		return nil, wrapped
 	}
 
 	sig, err := signer.Sign(rand.Reader, data)
 	if err != nil {
-		return nil, fmt.Errorf("sign with key %s: %w", matched.Label, classifySignError(err))
+		wrapped := fmt.Errorf("sign with key %s: %w", matched.Label, classifySignError(err))
+		a.audit.Sign(matched.Label, false, wrapped, peer)
+		return nil, wrapped
 	}
 	debugf("Sign: success for key %s", matched.Label)
+	a.audit.Sign(matched.Label, true, nil, peer)
 	return sig, nil
 }
 

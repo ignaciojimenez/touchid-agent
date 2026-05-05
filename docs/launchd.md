@@ -42,6 +42,32 @@ Host *
     IdentityAgent ~/Library/Caches/touchid-agent/agent.sock
 ```
 
+## Audit logging
+
+The agent can record one JSON-lines record per signing operation when
+started with `-audit-log PATH`:
+
+```xml
+<key>ProgramArguments</key>
+<array>
+  <string>__BINARY__</string>
+  <string>-l</string>
+  <string>__HOME__/Library/Caches/touchid-agent/agent.sock</string>
+  <string>-audit-log</string>
+  <string>__HOME__/Library/Logs/touchid-agent-audit.log</string>
+</array>
+```
+
+Each record looks like:
+
+```json
+{"ts":"2026-05-05T10:00:00Z","event":"sign","label":"ssh","success":true,"peer_pid":1234,"peer_uid":501}
+```
+
+The audit log is opened with mode 0600. For SOC 2 / corporate
+compliance, ship this file to your SIEM (rsyslog, Vector, FluentBit
+file source). It is independent of the `-v` debug log on stderr.
+
 ## Unloading
 
 ```bash

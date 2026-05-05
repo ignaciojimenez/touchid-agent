@@ -68,9 +68,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        Delete all managed keys.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
+		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l) mode:\n")
+		fmt.Fprintf(os.Stderr, "  -audit-log PATH   append a JSON-lines record per signing operation\n")
+		fmt.Fprintf(os.Stderr, "  -v                enable verbose debug logging on stderr\n\n")
 	}
 
 	socketPath := flag.String("l", "", "agent: path of the UNIX socket to listen on")
+	auditLogPath := flag.String("audit-log", "", "agent: path to JSON-lines audit log")
 	createKey := flag.String("create", "", "create a new key with the given label")
 	noTouch := flag.Bool("no-touch", false, "create: do not require Touch ID for this key")
 	postHook := flag.String("post-hook", "", "create: run command after key creation")
@@ -112,7 +116,7 @@ func main() {
 	case *deleteAll:
 		cmdDeleteAll(store)
 	case *socketPath != "":
-		cmdRun(store, *socketPath)
+		cmdRun(store, *socketPath, *auditLogPath)
 	default:
 		flag.Usage()
 		os.Exit(1)
@@ -292,14 +296,24 @@ func cmdDeleteAll(store KeyStore) {
 	fmt.Println("All keys deleted.")
 }
 
-func cmdRun(store KeyStore, socketPath string) {
+func cmdRun(store KeyStore, socketPath, auditLogPath string) {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		log.Println("Warning: touchid-agent is meant to run as a background daemon.")
 		log.Println("Running multiple instances is likely to lead to conflicts.")
 		log.Println("Consider using the launchd service.")
 	}
 
-	a := &Agent{store: store}
+	var audit *AuditLogger
+	if auditLogPath != "" {
+		var err error
+		audit, err = NewAuditLogger(auditLogPath)
+		if err != nil {
+			log.Fatalf("Failed to open audit log: %v\n", err)
+		}
+		log.Printf("Audit log enabled: %s", auditLogPath)
+	}
+
+	a := &Agent{store: store, audit: audit}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
@@ -328,6 +342,7 @@ func cmdRun(store KeyStore, socketPath string) {
 			log.Printf("Received %s, shutting down.", sig)
 			l.Close()
 			os.Remove(socketPath)
+			audit.Close()
 			os.Exit(0)
 		}
 	}()
