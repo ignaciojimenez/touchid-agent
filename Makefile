@@ -53,7 +53,15 @@ $(SWIFT_LIB): $(SWIFT_SOURCES)
 build: $(SWIFT_LIB)
 	go build -ldflags "-X main.Version=$(VERSION)" -o touchid-agent .
 
-sign: build
+# `sign` operates on whatever touchid-agent binary is already on disk —
+# it must NOT depend on `build`, otherwise `make release` (which runs
+# `universal` then `sign`) would have `build` clobber the universal
+# binary with a single-arch one and fail.
+sign:
+	@if [ ! -f touchid-agent ]; then \
+	  echo "error: touchid-agent binary not found; run 'make build' or 'make universal' first" >&2; \
+	  exit 1; \
+	fi
 ifeq ($(CODESIGN_IDENTITY),-)
 	codesign -s "-" -f touchid-agent
 else
