@@ -99,7 +99,10 @@ universal:
 
 # Package the (already built and signed) binary into a release archive.
 # Run `make universal sign CODESIGN_IDENTITY="Developer ID Application: ..."` first.
-# Produces both .zip (for notarytool) and .tar.gz (for distribution).
+# Produces:
+#   - .zip with just the binary (submitted to Apple's notary service)
+#   - .tar.gz with binary + completions + plist + hooks + LICENSE + README
+#     (distributed to users; consumed by the Homebrew formula)
 package:
 	@if [ ! -f touchid-agent ]; then \
 	  echo "error: touchid-agent binary not found; run 'make universal sign' first" >&2; \
@@ -109,9 +112,13 @@ package:
 	  echo "error: binary is ad-hoc signed; notarization will reject it. Re-sign with Developer ID." >&2; \
 	  exit 1; \
 	fi
-	mkdir -p $(DIST_DIR)
+	rm -rf $(DIST_DIR)/$(RELEASE_NAME)
+	mkdir -p $(DIST_DIR)/$(RELEASE_NAME)
+	cp touchid-agent $(DIST_DIR)/$(RELEASE_NAME)/
+	cp -R contrib    $(DIST_DIR)/$(RELEASE_NAME)/
+	cp LICENSE README.md $(DIST_DIR)/$(RELEASE_NAME)/
 	ditto -c -k --keepParent touchid-agent $(RELEASE_ZIP)
-	tar -czf $(RELEASE_TGZ) touchid-agent
+	tar -C $(DIST_DIR) -czf $(RELEASE_TGZ) $(RELEASE_NAME)
 	cd $(DIST_DIR) && shasum -a 256 $(RELEASE_NAME).tar.gz > $(RELEASE_NAME).tar.gz.sha256
 	cd $(DIST_DIR) && shasum -a 256 $(RELEASE_NAME).zip    > $(RELEASE_NAME).zip.sha256
 	@echo
