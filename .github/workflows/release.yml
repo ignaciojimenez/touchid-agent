@@ -83,3 +83,51 @@ jobs:
         if: always()
         run: |
           security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wait for release assets to propagate
+        run: sleep 10
+
+      - name: Download SHA-256 sidecar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.ref_name }}"
+          ASSET="touchid-agent-${VERSION}-darwin-universal.tar.gz.sha256"
+          gh release download "$VERSION" \
+            --repo "${{ github.repository }}" \
+            --pattern "$ASSET"
+          SHA256=$(awk '{print $1}' "$ASSET")
+          echo "SHA256=$SHA256" >> "$GITHUB_ENV"
+          echo "VERSION_BARE=${VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Check out homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: ignaciojimenez/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update formula
+        run: |
+          set -euo pipefail
+          sed -i \
+            -e "s/^  version \".*\"/  version \"${VERSION_BARE}\"/" \
+            -e "s/^  sha256 \".*\"/  sha256 \"${SHA256}\"/" \
+            Formula/touchid-agent.rb
+          echo "--- Updated formula ---"
+          grep -E '^\s*(version|sha256|url)' Formula/touchid-agent.rb
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/touchid-agent.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "touchid-agent ${{ github.ref_name }}"
+          git push

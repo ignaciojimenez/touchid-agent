@@ -55,6 +55,7 @@ Set the following on the repo (Settings → Secrets and variables → Actions):
 | `APPLE_ID` | your Apple ID email |
 | `APPLE_TEAM_ID` | 10-char team ID |
 | `APPLE_APP_SPECIFIC_PASSWORD` | the `xxxx-xxxx-xxxx-xxxx` password |
+| `HOMEBREW_TAP_TOKEN` | PAT (classic, `repo` scope) or fine-grained token with read/write on `ignaciojimenez/homebrew-tap` |
 
 Find the exact `MACOS_SIGN_IDENTITY` string with:
 
@@ -94,12 +95,27 @@ The `Release` workflow will:
 7. Generate release notes from `git log` since the previous tag.
 8. Create the GitHub release with all four artifacts attached.
 9. Tear down the keychain.
+10. (separate job) Update the `ignaciojimenez/homebrew-tap` formula with the new version and SHA-256.
 
 The full pipeline takes ~5–10 minutes, mostly notarization wait time.
 
 ## Updating the Homebrew formula
 
-After the release succeeds:
+The `update-homebrew` job in `release.yml` automatically updates the
+formula in `ignaciojimenez/homebrew-tap` after a successful release.
+No manual intervention needed — push a tag and both the release and the
+formula update happen end-to-end.
+
+### One-time setup
+
+Add `HOMEBREW_TAP_TOKEN` to the repo secrets (Settings → Secrets →
+Actions). This must be a **Personal Access Token** (classic, with
+`repo` scope) or a fine-grained token with read/write access to the
+`ignaciojimenez/homebrew-tap` repository.
+
+### Manual fallback
+
+If the `update-homebrew` job fails or you need to update outside CI:
 
 ```bash
 VERSION=v0.1.0

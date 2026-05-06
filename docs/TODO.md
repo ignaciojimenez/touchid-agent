@@ -1,29 +1,18 @@
 # TODO
 
-- Fix documentation to reflect Homebrew Tap installation
-- Figure out how to automagically do the brew tap stuff
 - Figure out how to document development flow for my own reference in the future
 - Review documentation to make sure it's lean and only necessary docs remain
+- Build most common use cases for hooks
+- Perform an advanced attack and threat model assessment specially of the hook functionality
 
 ### 1.5 Subsequent releases
 
-Once 1.1–1.4 are done, future releases are:
+Fully automated. Push a tag and CI handles everything — build, sign,
+notarize, publish the GitHub release, and update the Homebrew tap:
 
 ```bash
-# In touchid-agent repo
+make test
 git tag vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
-gh run watch
-
-# In homebrew-tap repo, after the release succeeds
-VERSION=vX.Y.Z
-SHA256=$(curl -sL \
-  "https://github.com/ignaciojimenez/touchid-agent/releases/download/${VERSION}/touchid-agent-${VERSION}-darwin-universal.tar.gz.sha256" \
-  | awk '{print $1}')
-sed -i '' \
-  -e "s/^  version \".*\"/  version \"${VERSION#v}\"/" \
-  -e "s/^  sha256 \".*\"/  sha256 \"${SHA256}\"/" \
-  Formula/touchid-agent.rb
-git commit --no-gpg-sign -am "touchid-agent ${VERSION}" && git push
 ```
 
 End users get the update via `brew update && brew upgrade touchid-agent`.
