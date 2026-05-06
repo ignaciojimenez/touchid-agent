@@ -2,16 +2,22 @@
 
 package main
 
+/*
+#include <libproc.h>
+*/
+import "C"
+
 import (
 	"net"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
 
-// peerCreds returns the PID and UID of the process on the other end of
-// a Unix-domain socket connection. Returns a zero Peer if the connection
-// is not a Unix socket or if the syscalls fail; a zero Peer is safe to
-// pass to AuditLogger.Sign.
+// peerCreds returns the PID, UID, and binary path of the process on
+// the other end of a Unix-domain socket connection. Returns a zero
+// Peer if the connection is not a Unix socket or if the syscalls fail;
+// a zero Peer is safe to pass to AuditLogger.Sign.
 func peerCreds(c net.Conn) Peer {
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
@@ -30,5 +36,17 @@ func peerCreds(c net.Conn) Peer {
 			p.UID = cred.Uid
 		}
 	})
+	if p.PID > 0 {
+		p.Path = procPidPath(p.PID)
+	}
 	return p
+}
+
+func procPidPath(pid int) string {
+	buf := make([]byte, C.PROC_PIDPATHINFO_MAXSIZE)
+	ret := C.proc_pidpath(C.int(pid), unsafe.Pointer(&buf[0]), C.uint32_t(len(buf)))
+	if ret <= 0 {
+		return ""
+	}
+	return string(buf[:ret])
 }

@@ -40,8 +40,9 @@ func (nopCloser) Close() error { return nil }
 // credentials could not be determined; they are still safe to log
 // (omitempty drops them from the JSON record).
 type Peer struct {
-	PID int
-	UID uint32
+	PID  int
+	UID  uint32
+	Path string
 }
 
 const eventSign = "sign"
@@ -54,6 +55,7 @@ type signEvent struct {
 	Error     string `json:"error,omitempty"`
 	PeerPID   int    `json:"peer_pid,omitempty"`
 	PeerUID   uint32 `json:"peer_uid,omitempty"`
+	PeerPath  string `json:"peer_path,omitempty"`
 }
 
 func (a *AuditLogger) Sign(label string, success bool, err error, peer Peer) {
@@ -67,6 +69,7 @@ func (a *AuditLogger) Sign(label string, success bool, err error, peer Peer) {
 		Success:   success,
 		PeerPID:   peer.PID,
 		PeerUID:   peer.UID,
+		PeerPath:  peer.Path,
 	}
 	if err != nil {
 		rec.Error = err.Error()

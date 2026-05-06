@@ -69,12 +69,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
 		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l) mode:\n")
-		fmt.Fprintf(os.Stderr, "  -audit-log PATH   append a JSON-lines record per signing operation\n")
-		fmt.Fprintf(os.Stderr, "  -v                enable verbose debug logging on stderr\n\n")
+		fmt.Fprintf(os.Stderr, "  -audit-log PATH         append a JSON-lines record per signing operation\n")
+		fmt.Fprintf(os.Stderr, "  -peer-check             verify peer binary against allowlist for no-touch keys\n")
+		fmt.Fprintf(os.Stderr, "  -rate-limit N           max signing operations per key per minute (ceiling: 120)\n")
+		fmt.Fprintf(os.Stderr, "  -allowed-callers PATH   path to file listing additional allowed caller binaries\n")
+		fmt.Fprintf(os.Stderr, "  -v                      enable verbose debug logging on stderr\n\n")
 	}
 
 	socketPath := flag.String("l", "", "agent: path of the UNIX socket to listen on")
 	auditLogPath := flag.String("audit-log", "", "agent: path to JSON-lines audit log")
+	peerCheck := flag.Bool("peer-check", false, "agent: verify peer binary against allowlist for no-touch keys")
+	rateLimit := flag.Int("rate-limit", 0, "agent: max signing operations per key per minute (0=off, ceiling=120)")
+	allowedCallersFile := flag.String("allowed-callers", "", "agent: path to file listing additional allowed caller binaries")
 	createKey := flag.String("create", "", "create a new key with the given label")
 	noTouch := flag.Bool("no-touch", false, "create: do not require Touch ID for this key")
 	postHook := flag.String("post-hook", "", "create: run command after key creation")
@@ -116,7 +122,7 @@ func main() {
 	case *deleteAll:
 		cmdDeleteAll(store)
 	case *socketPath != "":
-		cmdRun(store, *socketPath, *auditLogPath)
+		cmdRun(store, *socketPath, *auditLogPath, *peerCheck, *rateLimit, *allowedCallersFile)
 	default:
 		flag.Usage()
 		os.Exit(1)
@@ -296,7 +302,7 @@ func cmdDeleteAll(store KeyStore) {
 	fmt.Println("All keys deleted.")
 }
 
-func cmdRun(store KeyStore, socketPath, auditLogPath string) {
+func cmdRun(store KeyStore, socketPath, auditLogPath string, peerCheck bool, rateLimit int, allowedCallersFile string) {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		log.Println("Warning: touchid-agent is meant to run as a background daemon.")
 		log.Println("Running multiple instances is likely to lead to conflicts.")
@@ -311,9 +317,27 @@ func cmdRun(store KeyStore, socketPath, auditLogPath string) {
 			log.Fatalf("Failed to open audit log: %v\n", err)
 		}
 		log.Printf("Audit log enabled: %s", auditLogPath)
+	} else {
+		audit = NewStderrAuditLogger()
 	}
 
-	a := &Agent{store: store, audit: audit}
+	var extraCallers []string
+	if allowedCallersFile != "" {
+		var err error
+		extraCallers, err = loadAllowedCallers(allowedCallersFile)
+		if err != nil {
+			log.Fatalf("Failed to load allowed callers: %v\n", err)
+		}
+	}
+	policy := NewPeerPolicy(peerCheck, rateLimit, extraCallers)
+	if peerCheck {
+		log.Printf("Peer verification enabled (%d allowed caller paths)", len(policy.allowedPaths))
+	}
+	if rateLimit > 0 {
+		log.Printf("Rate limiting enabled: %d/min per key (ceiling: %d)", policy.rateLimit, rateLimitCeiling)
+	}
+
+	a := &Agent{store: store, audit: audit, policy: policy}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)

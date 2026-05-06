@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ type Agent struct {
 	store   KeyStore
 	keyMu   sync.Map // label -> *sync.Mutex
 	audit   *AuditLogger
+	policy  *PeerPolicy
 }
 
 func (a *Agent) keyLock(label string) *sync.Mutex {
@@ -156,7 +158,21 @@ func (a *Agent) signFor(key ssh.PublicKey, data []byte, peer Peer) (*ssh.Signatu
 	mu.Lock()
 	defer mu.Unlock()
 
-	debugf("Sign: matched key %s (touch=%v)", matched.Label, matched.RequireTouch)
+	debugf("Sign: matched key %s (touch=%v, peer=%s pid=%d)", matched.Label, matched.RequireTouch, peer.Path, peer.PID)
+
+	if !matched.RequireTouch {
+		if err := a.policy.CheckCaller(peer); err != nil {
+			wrapped := fmt.Errorf("rejected signing with key %s: %w", matched.Label, err)
+			a.audit.Sign(matched.Label, false, wrapped, peer)
+			return nil, wrapped
+		}
+	}
+
+	if err := a.policy.CheckRate(matched.Label); err != nil {
+		wrapped := fmt.Errorf("rejected signing with key %s: %w", matched.Label, err)
+		a.audit.Sign(matched.Label, false, wrapped, peer)
+		return nil, wrapped
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -186,6 +202,15 @@ func (a *Agent) signFor(key ssh.PublicKey, data []byte, peer Peer) (*ssh.Signatu
 	}
 	debugf("Sign: success for key %s", matched.Label)
 	a.audit.Sign(matched.Label, true, nil, peer)
+
+	if !matched.RequireTouch {
+		peerDesc := fmt.Sprintf("pid %d", peer.PID)
+		if peer.Path != "" {
+			peerDesc = filepath.Base(peer.Path)
+		}
+		go showNotification(fmt.Sprintf("Signed with key %q — %s", matched.Label, peerDesc))
+	}
+
 	return sig, nil
 }
 

@@ -29,7 +29,7 @@ key itself.
 |---------|--------|
 | Private key extraction | **Mitigated.** The SEP-wrapped blob on disk is non-extractable; the actual private key never leaves SEP hardware. |
 | Silent signing (Touch ID-gated key) | **Mitigated.** Each signing operation requires biometric confirmation enforced by the SEP. |
-| Silent signing (no-touch key) | **Not mitigated.** Any process running as the user can connect to the agent socket and issue signing requests. |
+| Silent signing (no-touch key) | **Partially mitigated.** By default, a macOS notification is shown on every no-touch signing event. With `-peer-check`, only binaries in the allowlist (default: system and Homebrew `ssh`, `scp`, `sftp`) can trigger a signing request; unknown processes are rejected. With `-rate-limit`, signing frequency per key is capped (hard ceiling: 120/min). A sufficiently capable same-UID attacker who can inject into an allowed process or modify the launchd plist can still bypass these controls; Touch ID remains the only hardware-enforced guarantee. |
 | Agent socket impersonation | **Partially mitigated.** Socket is 0600, directory 0700. Malware could manipulate `SSH_AUTH_SOCK`. |
 
 ### Root Compromise
@@ -56,6 +56,9 @@ device.
 | Socket permissions | Created with mode 0600 (owner-only). |
 | Socket directory | Created with mode 0700. |
 | Connection timeouts | Idle connections are closed after 10 minutes to prevent FD exhaustion. |
+| Peer binary verification (`-peer-check`) | The binary path of the connecting process is resolved via `proc_pidpath(3)` and checked against an allowlist of known SSH clients. Unknown processes are rejected for no-touch key signing. Symlinks in the allowlist are resolved at check time so Homebrew Cellar paths match correctly. |
+| Rate limiting (`-rate-limit N`) | Signing operations are limited per key per minute using a sliding window. The ceiling is hard-coded at 120/min and cannot be overridden by configuration. |
+| Default signing audit | When no `-audit-log` path is provided, signing events are emitted as JSON to stderr so they appear in the launchd log. |
 
 ### Denial of Service
 
@@ -85,8 +88,12 @@ not match the on-disk filename.
 | Key non-exportability | Enforced by Secure Enclave hardware. |
 | Per-operation biometric | Enforced by `SecAccessControlCreateFlags` `.privateKeyUsage \| .biometryAny` evaluated by the SEP at every `signature(for:)` call. |
 | Key isolation | Each key is its own file under `~/.touchid-agent/keys/`. There is no cross-process keychain item to enumerate or share. |
+| Keystore directory security | `~/.touchid-agent/keys/` is created and enforced at mode 0700; the agent refuses to start if `chmod` fails, preventing operation with insecure key storage. |
 | Socket security | Owner-only permissions (0600), parent directory 0700. |
 | Signal handling | SIGTERM/SIGINT clean up the socket file. SIGHUP is handled without termination. |
+| Signing audit | Every signing operation is logged (JSON-lines) — to the file specified by `-audit-log`, or to stderr by default. Each record includes timestamp, key label, success/failure, peer PID, UID, and binary path. |
+| Caller verification | When `-peer-check` is enabled, the connecting process binary is validated against an allowlist before no-touch keys are used. |
+| Rate limiting | When `-rate-limit` is set, per-key signing frequency is bounded by a sliding window with a hard-coded ceiling of 120/min. |
 
 ## Code signing and runtime entitlements
 
@@ -164,11 +171,20 @@ This is a platform limitation, not a touchid-agent bug:
    notarization signature at install time:
    `codesign -dv --verbose=4 /path/to/touchid-agent`. The expected
    `Authority=` chain ends in `Apple Root CA`.
-3. **Audit log signing events** (see `-audit-log` in `main.go`) and ship
-   the log to a SIEM. SE keys are non-extractable, so a forensic
-   indicator of compromise is a *signing event from a host you do not
-   control*, not key material in the wild.
-4. **Treat each key as scoped.** Use distinct labels for different
+3. **Audit log signing events** and ship the log to a SIEM. Signing
+   events are emitted to stderr by default (visible in `log show` and
+   the launchd journal); for structured retention use `-audit-log PATH`.
+   SE keys are non-extractable, so a forensic indicator of compromise is
+   a *signing event from a host you do not control*, not key material in
+   the wild. Each record includes the peer process path for attribution.
+4. **Enable caller verification.** Add `-peer-check` to the launchd plist
+   arguments. No-touch key signing is then restricted to binaries in the
+   default allowlist (`/usr/bin/ssh`, `/opt/homebrew/bin/ssh`, etc.).
+   Add organisation-specific SSH clients via `-allowed-callers PATH`.
+5. **Enable rate limiting.** Add `-rate-limit 60` (or lower) for keys
+   that are not expected to sign at high frequency. Use Touch ID-gated
+   keys for anything where the rate limit alone is insufficient.
+6. **Treat each key as scoped.** Use distinct labels for different
    privilege boundaries (`ssh-prod`, `git-signing`, `ssh-staging`) so a
    compromised endpoint can be narrowed down by which key was used.
 
