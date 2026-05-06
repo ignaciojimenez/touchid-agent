@@ -28,6 +28,14 @@ func NewAuditLogger(path string) (*AuditLogger, error) {
 	return &AuditLogger{enc: json.NewEncoder(f), closer: f}, nil
 }
 
+func NewStderrAuditLogger() *AuditLogger {
+	return &AuditLogger{enc: json.NewEncoder(os.Stderr), closer: nopCloser{}}
+}
+
+type nopCloser struct{}
+
+func (nopCloser) Close() error { return nil }
+
 // Peer captures local socket peer credentials. Zero values mean the
 // credentials could not be determined; they are still safe to log
 // (omitempty drops them from the JSON record).
