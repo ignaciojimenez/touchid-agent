@@ -21,6 +21,16 @@ on disk that is unusable on any other device or by any other user;
 signing reconstructs the key handle in the SEP from that blob, never the
 key itself.
 
+## Trust Boundaries
+
+| Boundary | Description |
+|----------|-------------|
+| Unix socket ↔ Agent | User-owned socket (0600). Any same-UID process can connect. Peer credentials (PID, UID, binary path) are captured for audit. |
+| Agent ↔ Secure Enclave | Key material never crosses this boundary in plaintext. CryptoKit talks to the SEP directly; the agent holds only opaque wrapped blobs. |
+| Agent ↔ Filesystem | JSON keyfiles in `~/.touchid-agent/keys/` (0600 files, 0700 directory). Contains SEP-wrapped tokens, not raw key material. |
+| Agent ↔ Post-create hook | User-supplied executable path invoked via `exec.Command` (no shell interpretation). Receives key metadata via environment variables; never receives private key material. |
+| Agent ↔ osascript | Notification subprocess for Touch ID prompts and signing alerts. Input is sanitized against injection. |
+
 ## Threats
 
 ### Malware on Host (user-level)
@@ -45,9 +55,7 @@ key itself.
 
 **Fully mitigated.** The private key physically cannot leave the Secure
 Enclave. There is no export mechanism, no file to steal, and no memory
-to dump that contains key material. The blob persisted to disk is a
-SEP-wrapped token that is useless without the same SEP on the same
-device.
+to dump that contains key material.
 
 ### Agent Socket Abuse
 
@@ -67,19 +75,18 @@ device.
 | Connection flood | Temporary accept errors are handled with backoff; non-temporary errors are fatal (crash-and-restart via launchd). |
 | Hung client holding mutex | Connection timeout (10 min) prevents indefinite lock holding. |
 
-### osascript Injection
+### Input Validation
 
-Touch ID notification messages are displayed via `osascript`. Input is
-sanitized: backslashes and double quotes are escaped; backticks and
-`$()` are stripped.
-
-### Key Label Collision
-
-`-create` checks for an existing keyfile with the same label before
-generating; labels are validated to forbid colons, path separators, and
-strings longer than 64 characters. Filenames are derived from the label,
-and the `loadKeyfile` path rejects files whose JSON-claimed label does
-not match the on-disk filename.
+- **osascript injection**: Notification messages are sanitized —
+  backslashes and double quotes are escaped; backticks and `$()` are
+  stripped.
+- **Key labels**: Validated to forbid colons, path separators, and
+  strings longer than 64 characters. `loadKeyfile` rejects files whose
+  JSON-claimed label does not match the on-disk filename.
+- **Post-create hooks**: Invoked via `exec.Command` (single argument,
+  no shell). The hook receives metadata through environment variables
+  (`TOUCHID_AGENT_LABEL`, `TOUCHID_AGENT_PUBKEY`, etc.) but never
+  private key material.
 
 ## Security Properties
 
@@ -95,70 +102,33 @@ not match the on-disk filename.
 | Caller verification | When `-peer-check` is enabled, the connecting process binary is validated against an allowlist before no-touch keys are used. |
 | Rate limiting | When `-rate-limit` is set, per-key signing frequency is bounded by a sliding window with a hard-coded ceiling of 120/min. |
 
-## Code signing and runtime entitlements
+## Code Signing
 
 Production builds are signed with Developer ID, hardened runtime
 (`--options runtime`), and a secure timestamp (`--timestamp`). The binary
 embeds **no entitlements** and contains no provisioning profile.
 
-Secure Enclave access is obtained via Apple's **CryptoKit**
-`SecureEnclave.P256.Signing.PrivateKey` API. Unlike the lower-level
-`SecKeyCreateRandomKey` + `kSecAttrTokenIDSecureEnclave` path, CryptoKit
-talks to the SEP directly without inserting items into the
-data-protection keychain. This is what lets the binary ship as a flat
-Mach-O without a provisioning profile while still using the Secure
-Enclave for hardware-backed keys (the Security.framework path requires
-the `keychain-access-groups` entitlement, and AMFI on macOS 14+ refuses
-to load a flat Mach-O that claims it without an embedded provisioning
-profile, which only `.app` bundles can carry).
+CryptoKit's `SecureEnclave.P256.Signing.PrivateKey` API bypasses the
+data-protection keychain entirely, which allows the binary to ship as a
+flat Mach-O without entitlements or a provisioning profile. See
+[Design Decisions](#design-decisions) for the full rationale.
 
-Security-relevant consequences of this approach:
-
-- **Key non-extractability** is unchanged. The private key is generated
-  inside the SEP and never exposed in plaintext. The
-  `dataRepresentation` blob persisted to disk is a SEP-wrapped token
-  that is unusable without the same SEP on the same device.
-- **Touch ID enforcement** is unchanged. `SecAccessControl` flags
-  `.privateKeyUsage | .biometryAny` are applied at key-creation time
-  and enforced by the SEP at every signing operation.
-- **Persistence security** is now the responsibility of the filesystem:
-  key files are stored in `~/.touchid-agent/keys/` with directory mode
-  0700 and file mode 0600. A user-level attacker who reads an SE keyfile
-  gets only the wrapped blob, which they cannot unwrap on any device
-  other than the originating Mac (and even on that Mac, signing requires
-  Touch ID for biometry-gated keys).
-
-## Attestation and the trust model
+## Attestation
 
 There is **no cryptographic attestation** that a touchid-agent public
-key was generated inside the Secure Enclave. A remote verifier (a Git
-server, an SSH gateway, an IdP) sees only an `ecdsa-sha2-nistp256` public
-key. It cannot distinguish between:
-
-- a key generated in the SEP and protected by Touch ID,
-- a software-generated key dropped into a tampered build of the agent,
-- an attacker-generated key uploaded to the user's account.
-
-This is a platform limitation, not a touchid-agent bug:
-
-- **Apple does not expose an attestation chain for SE keys.** Unlike
-  YubiKey's PIV attestation (which signs the new key with a
-  manufacturer-rooted certificate that the verifier can chain to Yubico),
-  CryptoKit and Security.framework provide no equivalent for SE-backed
-  keys on macOS. iOS has `SecKeyCreateAttestation`, which produces a
-  chain back to Apple's Anonymous Attestation CA, but it is unavailable
-  on macOS.
-- **DeviceCheck / App Attest** is iOS-only and attests an *app
-  installation*, not an individual key. Even on iOS it would not solve
-  this problem.
+key was generated inside the Secure Enclave. A remote verifier sees only
+an `ecdsa-sha2-nistp256` public key and cannot distinguish it from a
+software-generated key. This is a platform limitation: Apple does not
+expose an attestation chain for SE keys on macOS (iOS has
+`SecKeyCreateAttestation`, but it is unavailable on macOS).
 
 ### What this means in practice
 
 | Trust assumption | Implication |
 |---|---|
-| The endpoint is enrolled and managed | If MDM-attested device posture (e.g. Jamf, Kandji, Microsoft Intune) gates access to remote services, the system already trusts the endpoint. SE-key attestation would be redundant. |
-| The endpoint is unmanaged | A remote verifier cannot tell that a touchid-agent public key is hardware-backed. Compromise resistance equals "user account on the Mac is not compromised + the binary is the genuine one." |
-| The user is the threat | If you are defending against the legitimate user exfiltrating a key, the SEP genuinely prevents this even without attestation: the private key cannot leave the device. The user can register a *different* (software) key, but they cannot leak the SE one. |
+| Managed endpoint | MDM-attested device posture already trusts the endpoint; SE attestation would be redundant. |
+| Unmanaged endpoint | A remote verifier cannot confirm hardware backing. Compromise resistance depends on the user account and binary integrity. |
+| User is the threat | The SEP prevents key exfiltration even without attestation. The user can register a different key, but cannot leak the SE one. |
 
 ### Recommended mitigations for corporate deployment
 
@@ -166,17 +136,14 @@ This is a platform limitation, not a touchid-agent bug:
    only from MDM-enrolled, encrypted, up-to-date Macs. Cloudflare
    Access, Tailscale ACLs, or an SSH CA that requires a short-lived
    posture-attested certificate are all reasonable patterns.
-2. **Pin the binary.** Distribute touchid-agent through a controlled
-   channel (internal Homebrew tap, MDM-pushed package). Verify the
-   notarization signature at install time:
+2. **Pin the binary.** Distribute through a controlled channel (internal
+   Homebrew tap, MDM-pushed package). Verify the notarization signature:
    `codesign -dv --verbose=4 /path/to/touchid-agent`. The expected
    `Authority=` chain ends in `Apple Root CA`.
 3. **Audit log signing events** and ship the log to a SIEM. Signing
    events are emitted to stderr by default (visible in `log show` and
    the launchd journal); for structured retention use `-audit-log PATH`.
-   SE keys are non-extractable, so a forensic indicator of compromise is
-   a *signing event from a host you do not control*, not key material in
-   the wild. Each record includes the peer process path for attribution.
+   Each record includes the peer process path for attribution.
 4. **Enable caller verification.** Add `-peer-check` to the launchd plist
    arguments. No-touch key signing is then restricted to binaries in the
    default allowlist (`/usr/bin/ssh`, `/opt/homebrew/bin/ssh`, etc.).
@@ -190,13 +157,9 @@ This is a platform limitation, not a touchid-agent bug:
 
 ### What attestation would buy you
 
-If Apple shipped SE attestation on macOS tomorrow, the additional
-guarantee would be: *a verifier could prove that this specific public
-key originated from a SEP and is biometry-gated, without trusting the
-agent binary.* That is genuinely useful for unmanaged-endpoint
-zero-trust scenarios. Until then, the trust anchor is the endpoint, and
-touchid-agent's role is to ensure that even on a compromised endpoint
-the key itself cannot be exfiltrated.
+If Apple shipped SE attestation on macOS, a verifier could prove that a
+specific public key originated from a SEP and is biometry-gated, without
+trusting the agent binary. Until then, the trust anchor is the endpoint.
 
 ## Out of Scope
 
@@ -215,26 +178,22 @@ the key itself cannot be exfiltrated.
 ### Why CryptoKit, not Security.framework
 
 Both APIs access the same Secure Enclave hardware with identical
-cryptographic guarantees. We chose CryptoKit for these reasons:
+cryptographic guarantees. We chose CryptoKit because:
 
 1. **Distribution as a flat Mach-O.** `SecKeyCreateRandomKey` with
    `kSecAttrTokenIDSecureEnclave` routes through the data-protection
-   keychain, which AMFI gates behind the `keychain-access-groups`
-   entitlement. That entitlement requires an embedded provisioning
-   profile, and a flat Mach-O has nowhere to embed one (only `.app`
-   bundles do). CryptoKit's `SecureEnclave.P256.Signing.PrivateKey`
-   bypasses the keychain entirely.
-2. **Same security guarantees.** Both APIs use the same SEP. Key
-   non-extractability and biometry enforcement are properties of the
-   hardware and the `SecAccessControl` flags, not of the framework
-   wrapper.
+   keychain, which AMFI gates behind `keychain-access-groups`. That
+   entitlement requires an embedded provisioning profile, and a flat
+   Mach-O has nowhere to embed one. CryptoKit bypasses the keychain.
+2. **Same security guarantees.** Key non-extractability and biometry
+   enforcement are properties of the hardware and `SecAccessControl`
+   flags, not the framework wrapper.
 3. **Simpler trust surface.** No entitlements means fewer trust
-   assertions for reviewers and MDM administrators to evaluate.
+   assertions for reviewers and administrators to evaluate.
 
-The cost is that persistence is now the agent's responsibility (we
-manage `~/.touchid-agent/keys/` instead of relying on the keychain).
-This is a deliberate trade-off for distributability; see also
-`age-plugin-se`, which makes the same choice.
+The cost is that persistence is the agent's responsibility (we manage
+`~/.touchid-agent/keys/` instead of relying on the keychain). This is a
+deliberate trade-off for distributability.
 
 ### Why ECDSA P-256 Only
 
