@@ -24,6 +24,12 @@ links a Swift static library that talks to the SEP through CryptoKit.
   `KeyStore` with real ECDSA signing for unit tests; SE-backed flows
   are exercised manually after `make sign CODESIGN_IDENTITY="..."`.
 
+## Prerequisites
+
+- macOS 11 or later (CryptoKit's `SecureEnclave.P256` API)
+- Xcode Command Line Tools (provides `swiftc`)
+- Go 1.21 or later
+
 ## Build and test commands
 
 ```bash
@@ -34,7 +40,32 @@ make test-cover     # run tests + generate coverage.html
 make clean          # remove build artifacts (binary, .a, .swiftmodule, etc.)
 ```
 
-Quick run:
+### Build variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CODESIGN_IDENTITY` | `-` (ad-hoc) | Code signing identity. Set to a Developer ID for production. |
+| `PREFIX` | `/usr/local` | Install prefix for `make install`. |
+| `VERSION` | `git describe` | Version string embedded in the binary. |
+
+### Code signing
+
+Ad-hoc signing (the default) works for development and tests. Secure
+Enclave key creation requires a Developer ID-signed binary. **No
+entitlements** are claimed; the SEP is reached via CryptoKit.
+
+```bash
+make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+```
+
+List available signing identities:
+
+```bash
+security find-identity -v -p codesigning
+```
+
+### Quick run
+
 ```bash
 ./touchid-agent -l /tmp/.touchid-agent.sock
 export SSH_AUTH_SOCK=/tmp/.touchid-agent.sock

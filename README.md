@@ -21,7 +21,7 @@ universal binary — no Xcode or Go toolchain required.
 ### Building from source
 
 Only needed if you want to hack on the code itself. See
-[docs/building.md](docs/building.md) for full details.
+[CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites and build details.
 
 ```bash
 make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
@@ -64,7 +64,7 @@ touchid-agent -delete-all
 | Running as a launchd service | [docs/launchd.md](docs/launchd.md) |
 | Migrating from yubikey-agent | [docs/migration.md](docs/migration.md) |
 | Operational runbook | [docs/runbook.md](docs/runbook.md) |
-| Build variables and signing | [docs/building.md](docs/building.md) |
+| Building and signing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Release process | [docs/release.md](docs/release.md) |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | Threat model | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) |

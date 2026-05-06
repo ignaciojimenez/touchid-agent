@@ -88,6 +88,56 @@ to dump that contains key material.
   (`TOUCHID_AGENT_LABEL`, `TOUCHID_AGENT_PUBKEY`, etc.) but never
   private key material.
 
+## Post-Create Hook Attack Surface
+
+The `-post-hook` flag allows an arbitrary executable to run after key
+creation. The hook is invoked via `exec.Command` (no shell) and receives
+key metadata through environment variables. It never receives private
+key material. This section analyses the attack surface in detail.
+
+### Execution model
+
+```
+cmdCreate() → validateLabel → store.Generate → selfTestKey → runPostHook
+                                                                │
+                                               exec.Command(hookPath)
+                                               env: TOUCHID_AGENT_LABEL,
+                                                    TOUCHID_AGENT_PUBKEY,
+                                                    TOUCHID_AGENT_PUBKEY_FILE,
+                                                    TOUCHID_AGENT_TOUCH_REQUIRED
+                                               + full parent environment
+```
+
+The hook runs synchronously, with the same UID and privileges as the
+agent process. It inherits stdout, stderr, and the full parent
+environment.
+
+### Threats and mitigations
+
+| Threat | Severity | Status | Details |
+|--------|----------|--------|---------|
+| Shell injection via hook path | **Mitigated** | `exec.Command(hookCmd)` executes the binary directly; no shell interprets the path. Pipes, redirects, and inline shell syntax are inert. |
+| Shell metacharacters in label | Low | **Partially mitigated** | `validateLabel` rejects colons, path separators, and strings >64 chars, but allows `$`, backticks, `()`, and semicolons. These are harmless in the env-var transport (no shell expansion), but a poorly-written hook that uses unquoted `$TOUCHID_AGENT_LABEL` in a shell expression could evaluate them. The included `contrib/hooks/` examples are safe. |
+| TOCTOU on hook binary | Low | **Not mitigated** | Between the user specifying `-post-hook PATH` and the hook executing (after key generation + self-test), an attacker with write access to the hook path could swap the binary. Practical exploitation requires same-UID write access during a narrow window. |
+| No execution timeout | Low | **Not mitigated** | A hanging hook blocks the create command indefinitely. There is no watchdog or deadline. This is a denial-of-service against the operator, not a privilege escalation. |
+| Parent environment inheritance | Low | **Not mitigated** | The hook inherits `os.Environ()`, which may include `DYLD_INSERT_LIBRARIES` or other variables that alter dynamic linker behavior. On macOS with hardened runtime this is typically neutralized, but hooks built without hardened runtime could be affected. |
+| Hook binary integrity | Informational | **Not mitigated** | No code-signing or hash verification is performed on the hook binary. The trust model is that the user who supplies `-post-hook` is trusted — the same user who has physical access to Touch ID. |
+| Non-atomic provisioning | Informational | **By design** | If the hook fails (e.g., GitHub API error), the key exists locally but is not registered remotely. The user must re-run the hook or register the key manually. This is documented in `docs/hooks.md`. |
+| Public key metadata in env | Informational | **Acceptable** | The hook receives the public key, label, and `.pub` file path. Public keys are public by design; the file path reveals `$HOME` structure, which is already known to same-UID processes. |
+
+### Recommendations for hook authors
+
+1. **Quote all variables.** Always use `"$TOUCHID_AGENT_LABEL"`, never
+   bare `$TOUCHID_AGENT_LABEL`, in shell scripts.
+2. **Use `set -euo pipefail`.** Both contrib hooks do this. Fail fast
+   on errors, undefined variables, and broken pipes.
+3. **Minimize scope.** A hook should do one thing (e.g., upload a key).
+   Avoid chaining unrelated provisioning steps in a single hook.
+4. **Do not embed secrets in hook scripts.** Use credential helpers
+   (`gh auth`, `vault`, keychain) instead of hardcoded tokens.
+5. **Verify the hook is not world-writable.** A hook in a shared
+   location (e.g., `/tmp`) is trivially swappable.
+
 ## Security Properties
 
 | Property | Guarantee |

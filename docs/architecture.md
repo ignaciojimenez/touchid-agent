@@ -28,23 +28,11 @@ not have to round-trip through the SEP.
 
 ## Why CryptoKit
 
-CryptoKit's `SecureEnclave.P256.Signing.PrivateKey` and the lower-level
-Security.framework `SecKeyCreateRandomKey` + `kSecAttrTokenIDSecureEnclave`
-path both produce keys in the same Secure Enclave hardware with the same
-non-extractability and biometry guarantees. The difference is that the
-Security.framework path inserts the resulting key into the data-protection
-keychain, which on macOS 14+ requires the `keychain-access-groups`
-entitlement, which in turn requires an embedded provisioning profile. A
-flat Mach-O CLI binary has no supported location for a provisioning
-profile (only `.app` bundles do), so AMFI rejects flat binaries that
-claim that entitlement. CryptoKit talks to the SEP directly without
-involving the keychain, which is what lets us ship a flat
-Developer-ID-signed Mach-O with no entitlements at all.
-
-The cost is that persistence becomes the agent's responsibility -- keys
-live as files in `~/.touchid-agent/keys/` instead of in the macOS
-keychain. The same architectural choice is made by
-[`age-plugin-se`](https://github.com/remko/age-plugin-se).
+CryptoKit bypasses the data-protection keychain, which lets us ship a
+flat Developer-ID-signed Mach-O with no entitlements. The cost is that
+persistence becomes the agent's responsibility (keys live as files in
+`~/.touchid-agent/keys/`). See [THREAT_MODEL.md](THREAT_MODEL.md#why-cryptokit-not-securityframework)
+for the full rationale.
 
 ## Design principles
 
