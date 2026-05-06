@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Enterprise launchd template for touchid-agent.
+
+  Compared to the base template in contrib/plist/, this enables:
+    - peer-check:  verify calling binary against allowlist for no-touch keys
+    - audit-log:   JSON-lines audit trail per signing event
+
+  Replace __BINARY__ and __HOME__ before installing, or use the
+  enterprise setup script which does this automatically.
+
+  Optional flags to consider adding:
+    -rate-limit 30         cap signing to 30/min per key (ceiling: 120)
+    -allowed-callers PATH  extend default allowlist with org-specific binaries
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>touchid-agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__BINARY__</string>
+    <string>-l</string>
+    <string>__HOME__/Library/Caches/touchid-agent/agent.sock</string>
+    <string>-peer-check</string>
+    <string>-audit-log</string>
+    <string>__HOME__/Library/Logs/touchid-agent-audit.jsonl</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/touchid-agent.log</string>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/touchid-agent.log</string>
+</dict>
+</plist>
