@@ -184,7 +184,7 @@ func (a *Agent) signFor(key ssh.PublicKey, data []byte, peer Peer) (*ssh.Signatu
 			timer.Stop()
 			return
 		}
-		showNotification("Waiting for Touch ID authentication...")
+		showNotification(fmt.Sprintf("Waiting for Touch ID — key %q", matched.Label))
 	}()
 
 	signer, err := ssh.NewSignerFromKey(matched)
