@@ -49,7 +49,9 @@ func DefaultKeyStore() (*FilesystemKeyStore, error) {
 		return nil, fmt.Errorf("create %s: %w", dir, err)
 	}
 	_ = os.Chmod(root, 0o700)
-	_ = os.Chmod(dir, 0o700)
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("chmod %s: %w", dir, err)
+	}
 	return &FilesystemKeyStore{Dir: dir}, nil
 }
 
