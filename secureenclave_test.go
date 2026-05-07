@@ -15,7 +15,7 @@ func TestParseECPublicKey_Valid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw := elliptic.Marshal(elliptic.P256(), priv.PublicKey.X, priv.PublicKey.Y)
+	raw := marshalECPublicKey(&priv.PublicKey)
 
 	pub, err := parseECPublicKey(raw)
 	if err != nil {

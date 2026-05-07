@@ -29,6 +29,11 @@ jobs:
 
       - run: go vet ./...
 
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@v0.6.0
+          "$(go env GOPATH)/bin/staticcheck" ./...
+
       - run: make test
 
       # Scan for known-vulnerable transitive dependencies. Pinned to a

@@ -204,13 +204,13 @@ func classifySignError(err error) error {
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "userCancel") || strings.Contains(msg, "User cancel") || strings.Contains(msg, "LAError -2"):
-		return fmt.Errorf("Touch ID authentication was cancelled; the key was created successfully but not verified — run -list to confirm")
+		return fmt.Errorf("touch ID authentication was cancelled; the key was created successfully but not verified — run -list to confirm")
 	case strings.Contains(msg, "biometryNotAvailable") || strings.Contains(msg, "LAError -6"):
-		return fmt.Errorf("Touch ID hardware is not available on this Mac; use -no-touch for a key without biometric confirmation")
+		return fmt.Errorf("touch ID hardware is not available on this Mac; use -no-touch for a key without biometric confirmation")
 	case strings.Contains(msg, "biometryNotEnrolled") || strings.Contains(msg, "LAError -7"):
 		return fmt.Errorf("no fingerprints enrolled in Touch ID; enroll in System Settings > Touch ID, then retry")
 	case strings.Contains(msg, "biometryLockout") || strings.Contains(msg, "LAError -8"):
-		return fmt.Errorf("Touch ID is locked out after too many failed attempts; unlock your Mac with your password to recover Touch ID, then retry — the key on disk is valid")
+		return fmt.Errorf("touch ID is locked out after too many failed attempts; unlock your Mac with your password to recover Touch ID, then retry — the key on disk is valid")
 	case strings.Contains(msg, "passcodeNotSet") || strings.Contains(msg, "LAError -4"):
 		return fmt.Errorf("no system password set; Touch ID requires a login password — set one in System Settings > Users & Groups")
 	default:
