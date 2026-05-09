@@ -15,6 +15,9 @@ The hook is executed directly (not through a shell), so inline shell
 syntax like `echo $VAR` or pipes will not work. If you need shell
 features, write a script file and pass its path.
 
+Key labels are arbitrary and the touch policy is independent of the
+label. Use whatever names and policies fit your workflow.
+
 ## Examples
 
 Upload to GitHub on creation:

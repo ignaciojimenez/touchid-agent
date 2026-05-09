@@ -42,8 +42,8 @@ Steps:
 | Task | yubikey-agent | touchid-agent |
 |------|---------------|---------------|
 | Install | `brew install yubikey-agent` | `brew install ignaciojimenez/tap/touchid-agent` |
-| Create key | `yubikey-agent -setup` (single key) | `touchid-agent -create ssh` |
-| Create signing key | (not supported, single key only) | `touchid-agent -create git -no-touch` |
+| Create key | `yubikey-agent -setup` (single key) | `touchid-agent -create NAME` (any label) |
+| Create no-touch key | (not supported, single key only) | `touchid-agent -create NAME -no-touch` |
 | List keys | n/a (one key, always loaded) | `touchid-agent -list` |
 | Delete key | `ykman piv reset` | `touchid-agent -delete NAME` |
 | Delete all keys | `ykman piv reset` | `touchid-agent -delete-all` |

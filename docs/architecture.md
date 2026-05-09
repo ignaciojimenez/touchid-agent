@@ -41,7 +41,7 @@ for the full rationale.
 | Keys never leave hardware | SE-backed keys are generated in and used by the SEP (ECDSA P-256); the on-disk blob is SEP-wrapped and unusable elsewhere. |
 | Per-operation authentication | Touch ID required for each signing request when `.biometryAny` is set on key creation. |
 | Drop-in replacement | Standard SSH agent protocol. Set `SSH_AUTH_SOCK` and go. |
-| Multiple named keys | One key per purpose (e.g., `ssh` for auth, `git` for signing). |
+| Multiple named keys | Create as many keys as needed with arbitrary labels (e.g., `ssh-prod`, `ssh-staging`, `git-signing`). Each key has its own Touch ID policy. |
 | No secrets in memory | All signing delegates to CryptoKit / SEP; the agent never sees the private key. |
 | Creation self-test | `-create` always signs and verifies a synthetic digest before reporting success, forcing the Touch ID prompt at create-time and proving the access control is correctly applied. |
 | macOS only | By design. The Secure Enclave is Apple hardware. |

@@ -1,5 +1,9 @@
 # Git commit signing
 
+Git commit signing is a common use case for no-touch keys, but the
+`-no-touch` flag and key labels are not tied to any specific protocol.
+You can use any label and any touch policy for any purpose.
+
 Create a key for signing (Touch ID not required for automated operations):
 
 ```bash

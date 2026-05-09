@@ -49,7 +49,7 @@ configuration block at the top:
 ### Enterprise plist (`contrib/enterprise/touchid-agent.plist`)
 
 Pre-configured with `-peer-check` and `-audit-log`. Peer verification
-restricts which binaries can use no-touch keys (git signing key).
+restricts which binaries can use no-touch keys.
 The audit log writes JSON-lines records per signing event.
 
 Optional flags to add to `ProgramArguments`:
