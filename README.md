@@ -5,7 +5,7 @@ touchid-agent is a seamless ssh-agent for the macOS Secure Enclave.
 * **No hardware to carry.** Every modern Mac has a Secure Enclave. No USB tokens, no dongles, no "I forgot my YubiKey."
 * **Multiple named keys.** Create as many keys as you need, each with its own label and Touch ID policy. Separate keys by environment, service, or trust level.
 * **Touch ID per signature.** Biometric confirmation configurable per key: require Touch ID for sensitive operations, skip it where automation matters.
-* **Drop-in replacement.** Standard SSH agent protocol. Set `SSH_AUTH_SOCK` and go. Compatible with all SSH servers and services.
+* **Drop-in yubikey-agent replacement.** Standard SSH agent protocol. Set `SSH_AUTH_SOCK` and go. Compatible with all SSH servers and services.
 * **Indestructible keys.** Generated inside the Secure Enclave, never exportable. There is no file to steal.
 
 Drop-in replacement for [yubikey-agent](https://github.com/FiloSottile/yubikey-agent) -- same protocol, same key types (ECDSA P-256), but with support for multiple independently configured keys (yubikey-agent is limited to a single key).
@@ -37,7 +37,7 @@ make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 # Create a key with Touch ID required per signature
 touchid-agent -create ssh
 
-# Create another key without Touch ID (for automated operations)
+# Create another key without Touch ID (e.g. for automated git operations)
 touchid-agent -create git -no-touch
 
 # Labels are arbitrary -- use whatever fits your workflow
