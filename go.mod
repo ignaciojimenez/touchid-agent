@@ -1,6 +1,6 @@
 module github.com/ignaciojimenez/touchid-agent
 
-go 1.26.2
+go 1.26
 
 require (
 	golang.org/x/crypto v0.45.0
