@@ -19,6 +19,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -442,9 +443,6 @@ func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string
 
 	a := &Agent{store: store, audit: audit, policy: policy}
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
-
 	var l net.Listener
 	if launchd {
 		var err error
@@ -471,6 +469,10 @@ func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string
 		log.Printf("Listening on %s\n", socketPath)
 	}
 
+	// Signal handling: close the listener so the accept loop exits,
+	// then let normal control flow drain connections and run cleanup.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	go func() {
 		for sig := range sigCh {
 			if sig == syscall.SIGHUP {
@@ -479,11 +481,7 @@ func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string
 			}
 			log.Printf("Received %s, shutting down.", sig)
 			l.Close()
-			if !launchd {
-				os.Remove(socketPath)
-			}
-			audit.Close()
-			os.Exit(0)
+			return
 		}
 	}()
 
@@ -497,6 +495,7 @@ func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string
 		})
 	}
 
+	var wg sync.WaitGroup
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -510,13 +509,25 @@ func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			log.Fatalln("Failed to accept connections:", err)
+			// Listener closed by signal or other fatal error.
+			break
 		}
 		if idleTimer != nil {
 			idleTimer.Reset(launchdIdleTimeout)
 		}
-		go a.serveConn(conn)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.serveConn(conn)
+		}()
 	}
 
+	log.Println("Waiting for active connections to finish...")
+	wg.Wait()
+
+	if !launchd {
+		os.Remove(socketPath)
+	}
 	audit.Close()
+	log.Println("Shutdown complete.")
 }
