@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/term"
 )
 
@@ -71,6 +72,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        Delete the key with the given label.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -delete-all\n")
 		fmt.Fprintf(os.Stderr, "        Delete all managed keys.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -status PATH\n")
+		fmt.Fprintf(os.Stderr, "        Check if the agent at PATH is healthy. Exits 0 if reachable.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
 		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l / -launchd) mode:\n")
@@ -92,6 +95,7 @@ func main() {
 	postHook := flag.String("post-hook", "", "create: run command after key creation")
 	listKeys := flag.Bool("list", false, "list all managed keys")
 	listJSON := flag.Bool("json", false, "list: output as JSON array")
+	statusPath := flag.String("status", "", "check agent health at the given socket path")
 	deleteKey := flag.String("delete", "", "delete the key with the given label")
 	deleteAll := flag.Bool("delete-all", false, "delete all managed keys")
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
@@ -128,6 +132,8 @@ func main() {
 		cmdCreate(store, *createKey, !*noTouch, *postHook)
 	case *listKeys:
 		cmdList(store, *listJSON)
+	case *statusPath != "":
+		cmdStatus(*statusPath)
 	case *deleteKey != "":
 		cmdDelete(store, *deleteKey)
 	case *deleteAll:
@@ -377,6 +383,24 @@ func cmdDeleteAll(store KeyStore, labels []string) {
 		removePubKeyFile(label)
 	}
 	fmt.Println("All keys deleted.")
+}
+
+func cmdStatus(socketPath string) {
+	conn, err := net.DialTimeout("unix", socketPath, 5*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Agent unreachable: %v\n", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	client := agent.NewClient(conn)
+	keys, err := client.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Agent error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Agent is running. %d key(s) available.\n", len(keys))
 }
 
 const launchdIdleTimeout = 10 * time.Minute

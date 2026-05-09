@@ -6,8 +6,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"strings"
 	"testing"
 )
@@ -206,6 +209,64 @@ func TestCmdList_JSON_Empty(t *testing.T) {
 
 	if output != "[]" {
 		t.Errorf("empty list should output [], got %q", output)
+	}
+}
+
+func TestCmdStatus_Healthy(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "tid-st-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := fmt.Sprintf("%s/s.sock", dir)
+
+	store := NewMockKeyStore()
+	store.Generate("status-key", false)
+	a := &Agent{
+		store:  store,
+		audit:  NewStderrAuditLogger(),
+		policy: NewPeerPolicy(false, 0, nil),
+	}
+
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				a.serveConn(conn)
+			}()
+		}
+	}()
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		l.Close()
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	cmdStatus(sock)
+
+	w.Close()
+	os.Stdout = origStdout
+	l.Close()
+	wg.Wait()
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+	if !strings.Contains(output, "1 key(s)") {
+		t.Errorf("expected '1 key(s)' in output, got %q", output)
 	}
 }
 
