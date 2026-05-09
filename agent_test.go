@@ -17,7 +17,11 @@ import (
 func newTestAgent(t *testing.T) (*Agent, *MockKeyStore) {
 	t.Helper()
 	store := NewMockKeyStore()
-	a := &Agent{store: store}
+	a := &Agent{
+		store:  store,
+		audit:  NewStderrAuditLogger(),
+		policy: NewPeerPolicy(false, 0, nil),
+	}
 	return a, store
 }
 

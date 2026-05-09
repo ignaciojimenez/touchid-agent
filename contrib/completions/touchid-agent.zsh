@@ -21,6 +21,7 @@ _touchid-agent() {
         '-no-touch[Do not require Touch ID for this key]' \
         '-post-hook[Run command after key creation]:command:_command_names' \
         '-list[List all managed keys]' \
+        '-json[Output list as JSON array]' \
         '-delete[Delete the key with the given label]:label:' \
         '-delete-all[Delete all managed keys]' \
         '-v[Enable verbose debug logging]' \

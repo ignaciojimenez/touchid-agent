@@ -5,6 +5,7 @@ package main
 import (
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -64,8 +65,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        The executable receives key details via environment variables:\n")
 		fmt.Fprintf(os.Stderr, "          TOUCHID_AGENT_LABEL, TOUCHID_AGENT_PUBKEY,\n")
 		fmt.Fprintf(os.Stderr, "          TOUCHID_AGENT_PUBKEY_FILE, TOUCHID_AGENT_TOUCH_REQUIRED\n\n")
-		fmt.Fprintf(os.Stderr, "  touchid-agent -list\n")
-		fmt.Fprintf(os.Stderr, "        List all managed keys.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -list [-json]\n")
+		fmt.Fprintf(os.Stderr, "        List all managed keys. Use -json for machine-readable output.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -delete NAME\n")
 		fmt.Fprintf(os.Stderr, "        Delete the key with the given label.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -delete-all\n")
@@ -90,6 +91,7 @@ func main() {
 	noTouch := flag.Bool("no-touch", false, "create: do not require Touch ID for this key")
 	postHook := flag.String("post-hook", "", "create: run command after key creation")
 	listKeys := flag.Bool("list", false, "list all managed keys")
+	listJSON := flag.Bool("json", false, "list: output as JSON array")
 	deleteKey := flag.String("delete", "", "delete the key with the given label")
 	deleteAll := flag.Bool("delete-all", false, "delete all managed keys")
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
@@ -125,11 +127,32 @@ func main() {
 	case *createKey != "":
 		cmdCreate(store, *createKey, !*noTouch, *postHook)
 	case *listKeys:
-		cmdList(store)
+		cmdList(store, *listJSON)
 	case *deleteKey != "":
 		cmdDelete(store, *deleteKey)
 	case *deleteAll:
-		cmdDeleteAll(store)
+		keys, err := store.List()
+		if err != nil {
+			log.Fatalf("Failed to list keys: %v\n", err)
+		}
+		if len(keys) == 0 {
+			fmt.Println("No keys to delete.")
+			return
+		}
+		if term.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Printf("Delete %d key(s)? [y/N] ", len(keys))
+			var answer string
+			fmt.Scanln(&answer)
+			if answer != "y" && answer != "Y" {
+				fmt.Println("Aborted.")
+				return
+			}
+		}
+		var labels []string
+		for _, k := range keys {
+			labels = append(labels, k.Label)
+		}
+		cmdDeleteAll(store, labels)
 	case *launchdMode:
 		cmdRun(store, "", true, *auditLogPath, *peerCheck, *rateLimit, *allowedCallersFile)
 	case *socketPath != "":
@@ -250,6 +273,17 @@ func writePubKeyFile(label, pubKeyStr string) string {
 	return pubFile
 }
 
+func removePubKeyFile(label string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	pubFile := filepath.Join(home, ".ssh", fmt.Sprintf("touchid-agent-%s.pub", label))
+	if err := os.Remove(pubFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("Warning: could not remove public key file %s: %v", pubFile, err)
+	}
+}
+
 func runPostHook(hookCmd, label, pubKeyStr, pubFile string, touchRequired bool) error {
 	if hookCmd == "" {
 		return nil
@@ -269,10 +303,38 @@ func runPostHook(hookCmd, label, pubKeyStr, pubFile string, touchRequired bool) 
 	return nil
 }
 
-func cmdList(store KeyStore) {
+type keyListEntry struct {
+	Label        string `json:"label"`
+	RequireTouch bool   `json:"require_touch"`
+	PublicKey    string `json:"public_key"`
+}
+
+func cmdList(store KeyStore, jsonOutput bool) {
 	keys, err := store.List()
 	if err != nil {
 		log.Fatalf("Failed to list keys: %v\n", err)
+	}
+
+	if jsonOutput {
+		var entries []keyListEntry
+		for _, k := range keys {
+			sshPub, err := ssh.NewPublicKey(k.publicKey)
+			if err != nil {
+				continue
+			}
+			entries = append(entries, keyListEntry{
+				Label:        k.Label,
+				RequireTouch: k.RequireTouch,
+				PublicKey:    strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))),
+			})
+		}
+		if entries == nil {
+			entries = []keyListEntry{}
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(entries)
+		return
 	}
 
 	if len(keys) == 0 {
@@ -303,12 +365,16 @@ func cmdDelete(store KeyStore, label string) {
 	if err := store.Delete(label); err != nil {
 		log.Fatalf("Failed to delete key: %v\n", err)
 	}
+	removePubKeyFile(label)
 	fmt.Printf("Key '%s' deleted.\n", label)
 }
 
-func cmdDeleteAll(store KeyStore) {
+func cmdDeleteAll(store KeyStore, labels []string) {
 	if err := store.DeleteAll(); err != nil {
 		log.Fatalf("Failed to delete keys: %v\n", err)
+	}
+	for _, label := range labels {
+		removePubKeyFile(label)
 	}
 	fmt.Println("All keys deleted.")
 }

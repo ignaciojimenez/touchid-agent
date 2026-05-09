@@ -14,7 +14,7 @@ _touchid_agent() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # All top-level flags.
-    local _touchid_agent_flags="-l -launchd -audit-log -peer-check -rate-limit -allowed-callers -create -no-touch -post-hook -list -delete -delete-all -v -version"
+    local _touchid_agent_flags="-l -launchd -audit-log -peer-check -rate-limit -allowed-callers -create -no-touch -post-hook -list -json -delete -delete-all -v -version"
 
     case "${prev}" in
         -l|-audit-log|-create|-delete|-post-hook|-rate-limit|-allowed-callers)

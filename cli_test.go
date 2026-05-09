@@ -3,7 +3,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -66,6 +70,142 @@ func TestValidateLabel_SpecialChars(t *testing.T) {
 		if err := validateLabel(label); err != nil {
 			t.Errorf("validateLabel(%q) = %v, want nil", label, err)
 		}
+	}
+}
+
+func TestRemovePubKeyFile_RemovesFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	os.MkdirAll(sshDir, 0700)
+	pubFile := filepath.Join(sshDir, "touchid-agent-ssh.pub")
+	os.WriteFile(pubFile, []byte("ecdsa-sha2-nistp256 AAAA touchid-agent:ssh\n"), 0644)
+
+	removePubKeyFile("ssh")
+
+	if _, err := os.Stat(pubFile); !os.IsNotExist(err) {
+		t.Errorf("pub key file should be removed, stat = %v", err)
+	}
+}
+
+func TestRemovePubKeyFile_NoopWhenMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Should not panic or log an error for a non-existent file.
+	removePubKeyFile("ghost")
+}
+
+func TestCmdDelete_RemovesPubKeyFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	os.MkdirAll(sshDir, 0700)
+	pubFile := filepath.Join(sshDir, "touchid-agent-delme.pub")
+	os.WriteFile(pubFile, []byte("ecdsa-sha2-nistp256 AAAA touchid-agent:delme\n"), 0644)
+
+	dir := t.TempDir()
+	writeTestKeyfile(t, dir, "delme", false)
+	store := &FilesystemKeyStore{Dir: dir}
+
+	cmdDelete(store, "delme")
+
+	if _, err := os.Stat(pubFile); !os.IsNotExist(err) {
+		t.Errorf("cmdDelete should remove pub key file, stat = %v", err)
+	}
+}
+
+func TestCmdDeleteAll_RemovesPubKeyFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	os.MkdirAll(sshDir, 0700)
+
+	store := NewMockKeyStore()
+	for _, label := range []string{"a", "b"} {
+		store.Generate(label, false)
+		pubFile := filepath.Join(sshDir, "touchid-agent-"+label+".pub")
+		os.WriteFile(pubFile, []byte("fake-key\n"), 0644)
+	}
+
+	cmdDeleteAll(store, []string{"a", "b"})
+
+	for _, label := range []string{"a", "b"} {
+		pubFile := filepath.Join(sshDir, "touchid-agent-"+label+".pub")
+		if _, err := os.Stat(pubFile); !os.IsNotExist(err) {
+			t.Errorf("pub key file for %q should be removed, stat = %v", label, err)
+		}
+	}
+}
+
+func TestCmdList_JSON(t *testing.T) {
+	store := NewMockKeyStore()
+	store.Generate("ssh", true)
+	store.Generate("git", false)
+
+	// Capture stdout.
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	cmdList(store, true)
+
+	w.Close()
+	os.Stdout = origStdout
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	var entries []keyListEntry
+	if err := json.Unmarshal([]byte(output), &entries); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, output)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+
+	byLabel := map[string]keyListEntry{}
+	for _, e := range entries {
+		byLabel[e.Label] = e
+	}
+	if e, ok := byLabel["ssh"]; !ok || !e.RequireTouch {
+		t.Errorf("ssh key should have require_touch=true, got %+v", byLabel["ssh"])
+	}
+	if e, ok := byLabel["git"]; !ok || e.RequireTouch {
+		t.Errorf("git key should have require_touch=false, got %+v", byLabel["git"])
+	}
+	for _, e := range entries {
+		if e.PublicKey == "" {
+			t.Errorf("key %q has empty public_key", e.Label)
+		}
+	}
+}
+
+func TestCmdList_JSON_Empty(t *testing.T) {
+	store := NewMockKeyStore()
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	cmdList(store, true)
+
+	w.Close()
+	os.Stdout = origStdout
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := strings.TrimSpace(buf.String())
+
+	if output != "[]" {
+		t.Errorf("empty list should output [], got %q", output)
 	}
 }
 
