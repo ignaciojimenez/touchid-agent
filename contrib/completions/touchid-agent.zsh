@@ -12,6 +12,7 @@
 _touchid-agent() {
     _arguments -s \
         '-l[Run the agent, listening on the UNIX socket at PATH]:socket path:_files' \
+        '-launchd[Run the agent using launchd socket activation]' \
         '-audit-log[Append a JSON-lines record per signing operation]:audit log path:_files' \
         '-peer-check[Verify peer binary against allowlist for no-touch keys]' \
         '-rate-limit[Max signing operations per key per minute (ceiling: 120)]:limit:' \

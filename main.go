@@ -51,6 +51,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage:\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -l PATH\n")
 		fmt.Fprintf(os.Stderr, "        Run the agent, listening on the UNIX socket at PATH.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -launchd\n")
+		fmt.Fprintf(os.Stderr, "        Run the agent using launchd socket activation.\n")
+		fmt.Fprintf(os.Stderr, "        The socket is created and owned by launchd (see the plist Sockets key).\n")
+		fmt.Fprintf(os.Stderr, "        The agent exits after %v of inactivity; launchd restarts it on demand.\n\n", launchdIdleTimeout)
 		fmt.Fprintf(os.Stderr, "  touchid-agent -create NAME [-no-touch] [-post-hook CMD]\n")
 		fmt.Fprintf(os.Stderr, "        Create a new SSH key in the Secure Enclave.\n")
 		fmt.Fprintf(os.Stderr, "        By default, Touch ID is required for every signing operation.\n")
@@ -68,7 +72,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        Delete all managed keys.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
-		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l) mode:\n")
+		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l / -launchd) mode:\n")
 		fmt.Fprintf(os.Stderr, "  -audit-log PATH         append a JSON-lines record per signing operation\n")
 		fmt.Fprintf(os.Stderr, "  -peer-check             verify peer binary against allowlist for no-touch keys\n")
 		fmt.Fprintf(os.Stderr, "  -rate-limit N           max signing operations per key per minute (ceiling: 120)\n")
@@ -77,6 +81,7 @@ func main() {
 	}
 
 	socketPath := flag.String("l", "", "agent: path of the UNIX socket to listen on")
+	launchdMode := flag.Bool("launchd", false, "agent: obtain listener from launchd socket activation")
 	auditLogPath := flag.String("audit-log", "", "agent: path to JSON-lines audit log")
 	peerCheck := flag.Bool("peer-check", false, "agent: verify peer binary against allowlist for no-touch keys")
 	rateLimit := flag.Int("rate-limit", 0, "agent: max signing operations per key per minute (0=off, ceiling=120)")
@@ -112,6 +117,10 @@ func main() {
 		log.Fatalf("Failed to initialize key store: %v\n", err)
 	}
 
+	if *launchdMode && *socketPath != "" {
+		log.Fatal("-launchd and -l are mutually exclusive")
+	}
+
 	switch {
 	case *createKey != "":
 		cmdCreate(store, *createKey, !*noTouch, *postHook)
@@ -121,8 +130,10 @@ func main() {
 		cmdDelete(store, *deleteKey)
 	case *deleteAll:
 		cmdDeleteAll(store)
+	case *launchdMode:
+		cmdRun(store, "", true, *auditLogPath, *peerCheck, *rateLimit, *allowedCallersFile)
 	case *socketPath != "":
-		cmdRun(store, *socketPath, *auditLogPath, *peerCheck, *rateLimit, *allowedCallersFile)
+		cmdRun(store, *socketPath, false, *auditLogPath, *peerCheck, *rateLimit, *allowedCallersFile)
 	default:
 		flag.Usage()
 		os.Exit(1)
@@ -302,8 +313,10 @@ func cmdDeleteAll(store KeyStore) {
 	fmt.Println("All keys deleted.")
 }
 
-func cmdRun(store KeyStore, socketPath, auditLogPath string, peerCheck bool, rateLimit int, allowedCallersFile string) {
-	if term.IsTerminal(int(os.Stdin.Fd())) {
+const launchdIdleTimeout = 10 * time.Minute
+
+func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string, peerCheck bool, rateLimit int, allowedCallersFile string) {
+	if !launchd && term.IsTerminal(int(os.Stdin.Fd())) {
 		log.Println("Warning: touchid-agent is meant to run as a background daemon.")
 		log.Println("Running multiple instances is likely to lead to conflicts.")
 		log.Println("Consider using the launchd service.")
@@ -342,19 +355,30 @@ func cmdRun(store KeyStore, socketPath, auditLogPath string, peerCheck bool, rat
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 
-	os.Remove(socketPath)
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0700); err != nil {
-		log.Fatalln("Failed to create UNIX socket directory:", err)
-	}
-	oldMask := syscall.Umask(0077)
-	l, err := net.Listen("unix", socketPath)
-	syscall.Umask(oldMask)
-	if err != nil {
-		log.Fatalln("Failed to listen on UNIX socket:", err)
-	}
-
-	if err := os.Chmod(socketPath, 0600); err != nil {
-		log.Printf("Warning: could not set socket permissions: %v", err)
+	var l net.Listener
+	if launchd {
+		var err error
+		l, err = launchdListener()
+		if err != nil {
+			log.Fatalf("Failed to activate launchd socket: %v\n", err)
+		}
+		log.Printf("Listening via launchd socket activation (idle timeout: %v)", launchdIdleTimeout)
+	} else {
+		os.Remove(socketPath)
+		if err := os.MkdirAll(filepath.Dir(socketPath), 0700); err != nil {
+			log.Fatalln("Failed to create UNIX socket directory:", err)
+		}
+		oldMask := syscall.Umask(0077)
+		var err error
+		l, err = net.Listen("unix", socketPath)
+		syscall.Umask(oldMask)
+		if err != nil {
+			log.Fatalln("Failed to listen on UNIX socket:", err)
+		}
+		if err := os.Chmod(socketPath, 0600); err != nil {
+			log.Printf("Warning: could not set socket permissions: %v", err)
+		}
+		log.Printf("Listening on %s\n", socketPath)
 	}
 
 	go func() {
@@ -365,17 +389,31 @@ func cmdRun(store KeyStore, socketPath, auditLogPath string, peerCheck bool, rat
 			}
 			log.Printf("Received %s, shutting down.", sig)
 			l.Close()
-			os.Remove(socketPath)
+			if !launchd {
+				os.Remove(socketPath)
+			}
 			audit.Close()
 			os.Exit(0)
 		}
 	}()
 
-	log.Printf("Listening on %s\n", socketPath)
+	// In launchd mode, exit after a period of inactivity so launchd can
+	// restart us on demand. This keeps the idle footprint at zero.
+	var idleTimer *time.Timer
+	if launchd {
+		idleTimer = time.AfterFunc(launchdIdleTimeout, func() {
+			log.Println("Idle timeout reached, exiting for launchd to restart on demand.")
+			l.Close()
+		})
+	}
 
 	for {
 		conn, err := l.Accept()
 		if err != nil {
+			if launchd {
+				debugf("accept loop ended: %v", err)
+				break
+			}
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
 				log.Println("Temporary Accept error, sleeping 1s:", err)
@@ -384,6 +422,11 @@ func cmdRun(store KeyStore, socketPath, auditLogPath string, peerCheck bool, rat
 			}
 			log.Fatalln("Failed to accept connections:", err)
 		}
+		if idleTimer != nil {
+			idleTimer.Reset(launchdIdleTimeout)
+		}
 		go a.serveConn(conn)
 	}
+
+	audit.Close()
 }

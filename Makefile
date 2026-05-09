@@ -93,6 +93,10 @@ install-launchd: build sign
 	    -e 's|__HOME__|$(HOME)|g' \
 	    $(PLIST_SRC) > $(PLIST_DST)
 	@echo "Plist written to $(PLIST_DST)"
+	@echo ""
+	@echo "Socket activation enabled: launchd owns the socket and starts the"
+	@echo "agent on first connection. The agent exits after 10 min of idle."
+	@echo ""
 	@echo "Load with: launchctl load $(PLIST_DST)"
 	@echo "Socket:    $(SOCKET_PATH)"
 
