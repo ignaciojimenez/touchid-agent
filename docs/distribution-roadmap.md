@@ -38,7 +38,7 @@ up cold.
 | # | Track | Audience | Status |
 |---|---|---|---|
 | 1 | Self-healing brew/individual upgrade | Individuals via brew | **Done (v0.3.0)** |
-| 2 | Signed `.pkg` for fleet deployment | IT pushing via MDM/Munki/Jamf | Not started |
+| 2 | Signed `.pkg` for fleet deployment | IT pushing via MDM/Munki/Jamf | **Partial (v0.4.0)** — pkg + bootstrap LaunchAgent shipped; configuration profile (§3) remains |
 | 3 | Org-scale enrollment + inventory | Org operating at scale | Discovery |
 
 ---
@@ -80,6 +80,27 @@ sync merged directly to tap `main` on 2026-05-10.
 ---
 
 ## Track #2 — Signed `.pkg` for fleet deployment
+
+### Status (2026-05-11)
+
+**Shipped in v0.4.0:**
+
+- §1 CI pkg build — `scripts/build-pkg.sh` does pkgbuild → productbuild
+  → productsign (Developer ID Installer) → notarize → staple. Wired
+  into `.github/workflows/release.yml` as a step after the binary
+  release; pkg + sha256 are attached to every GitHub release.
+- §2 Per-user activation from a system-wide pkg — bootstrap
+  LaunchAgent at `/Library/LaunchAgents/touchid-agent-bootstrap.plist`
+  invokes `touchid-agent -ensure-user-plist` on each Aqua session,
+  which idempotently installs the per-user socket-activated plist.
+
+**Remaining in Track #2:**
+
+- §3 Configuration profile (`.mobileconfig`) + Managed Preferences
+  read path in the agent. Without this, IT can deploy but cannot
+  enforce flags; SOC 2 reviewers will flag the gap.
+- §4 `docs/deployment.md` — write after the first Munki pilot run so
+  the doc reflects real importer commands rather than guesses.
 
 ### Goal
 
