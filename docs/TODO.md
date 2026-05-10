@@ -1,5 +1,11 @@
 # TODO
 
+## Unsorted
+
+- [ ] Follow up on distribution roadmap
+- [ ] Flag to disable features at build that could reduce attack surface (e.g. post-create hook, others?)
+- [ ] Make documentation much more consistent and lean
+
 ## Deferred
 
 - [ ] Key fingerprint cache: `signFor()` does O(n) list + linear scan
