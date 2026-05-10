@@ -36,15 +36,6 @@ type nopCloser struct{}
 
 func (nopCloser) Close() error { return nil }
 
-// Peer captures local socket peer credentials. Zero values mean the
-// credentials could not be determined; they are still safe to log
-// (omitempty drops them from the JSON record).
-type Peer struct {
-	PID  int
-	UID  uint32
-	Path string
-}
-
 const eventSign = "sign"
 
 type signEvent struct {

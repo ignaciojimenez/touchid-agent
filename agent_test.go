@@ -7,8 +7,10 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -17,7 +19,11 @@ import (
 func newTestAgent(t *testing.T) (*Agent, *MockKeyStore) {
 	t.Helper()
 	store := NewMockKeyStore()
-	a := &Agent{store: store}
+	a := &Agent{
+		store:  store,
+		audit:  NewStderrAuditLogger(),
+		policy: NewPeerPolicy(false, 0, nil),
+	}
 	return a, store
 }
 
@@ -261,5 +267,71 @@ func TestAgent_ConcurrentSign_DifferentKeys(t *testing.T) {
 
 	for err := range errs {
 		t.Errorf("concurrent multi-key Sign error: %v", err)
+	}
+}
+
+func TestAgent_Sign_NotifiesOnNoTouchKey(t *testing.T) {
+	var mu sync.Mutex
+	var messages []string
+
+	a, store := newTestAgent(t)
+	a.notifyFn = func(msg string) {
+		mu.Lock()
+		messages = append(messages, msg)
+		mu.Unlock()
+	}
+	key, _ := store.Generate("notify-test", false)
+	sshPub, _ := ssh.NewPublicKey(key.publicKey)
+
+	data := sha256.Sum256([]byte("test"))
+	_, err := a.Sign(sshPub, data[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The no-touch notification is sent in a goroutine; give it a moment.
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	found := false
+	for _, m := range messages {
+		if strings.Contains(m, "notify-test") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected notification mentioning key label, got %v", messages)
+	}
+}
+
+func TestAgent_Sign_NoNotifyOnTouchKey(t *testing.T) {
+	var mu sync.Mutex
+	var messages []string
+
+	a, store := newTestAgent(t)
+	a.notifyFn = func(msg string) {
+		mu.Lock()
+		messages = append(messages, msg)
+		mu.Unlock()
+	}
+	key, _ := store.Generate("touch-key", true)
+	sshPub, _ := ssh.NewPublicKey(key.publicKey)
+
+	data := sha256.Sum256([]byte("test"))
+	_, err := a.Sign(sshPub, data[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, m := range messages {
+		if strings.Contains(m, "Signed with") {
+			t.Errorf("touch-required key should not trigger 'Signed with' notification, got %q", m)
+		}
 	}
 }

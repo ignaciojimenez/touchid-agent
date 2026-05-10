@@ -5,6 +5,7 @@ package main
 import (
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,10 +19,12 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/term"
 )
 
@@ -51,6 +54,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage:\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -l PATH\n")
 		fmt.Fprintf(os.Stderr, "        Run the agent, listening on the UNIX socket at PATH.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -launchd\n")
+		fmt.Fprintf(os.Stderr, "        Run the agent using launchd socket activation.\n")
+		fmt.Fprintf(os.Stderr, "        The socket is created and owned by launchd (see the plist Sockets key).\n")
+		fmt.Fprintf(os.Stderr, "        The agent exits after %v of inactivity; launchd restarts it on demand.\n\n", launchdIdleTimeout)
 		fmt.Fprintf(os.Stderr, "  touchid-agent -create NAME [-no-touch] [-post-hook CMD]\n")
 		fmt.Fprintf(os.Stderr, "        Create a new SSH key in the Secure Enclave.\n")
 		fmt.Fprintf(os.Stderr, "        By default, Touch ID is required for every signing operation.\n")
@@ -60,15 +67,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        The executable receives key details via environment variables:\n")
 		fmt.Fprintf(os.Stderr, "          TOUCHID_AGENT_LABEL, TOUCHID_AGENT_PUBKEY,\n")
 		fmt.Fprintf(os.Stderr, "          TOUCHID_AGENT_PUBKEY_FILE, TOUCHID_AGENT_TOUCH_REQUIRED\n\n")
-		fmt.Fprintf(os.Stderr, "  touchid-agent -list\n")
-		fmt.Fprintf(os.Stderr, "        List all managed keys.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -list [-json]\n")
+		fmt.Fprintf(os.Stderr, "        List all managed keys. Use -json for machine-readable output.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -delete NAME\n")
 		fmt.Fprintf(os.Stderr, "        Delete the key with the given label.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -delete-all\n")
 		fmt.Fprintf(os.Stderr, "        Delete all managed keys.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -status PATH\n")
+		fmt.Fprintf(os.Stderr, "        Check if the agent at PATH is healthy. Exits 0 if reachable.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
-		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l) mode:\n")
+		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l / -launchd) mode:\n")
 		fmt.Fprintf(os.Stderr, "  -audit-log PATH         append a JSON-lines record per signing operation\n")
 		fmt.Fprintf(os.Stderr, "  -peer-check             verify peer binary against allowlist for no-touch keys\n")
 		fmt.Fprintf(os.Stderr, "  -rate-limit N           max signing operations per key per minute (ceiling: 120)\n")
@@ -77,6 +86,7 @@ func main() {
 	}
 
 	socketPath := flag.String("l", "", "agent: path of the UNIX socket to listen on")
+	launchdMode := flag.Bool("launchd", false, "agent: obtain listener from launchd socket activation")
 	auditLogPath := flag.String("audit-log", "", "agent: path to JSON-lines audit log")
 	peerCheck := flag.Bool("peer-check", false, "agent: verify peer binary against allowlist for no-touch keys")
 	rateLimit := flag.Int("rate-limit", 0, "agent: max signing operations per key per minute (0=off, ceiling=120)")
@@ -85,6 +95,8 @@ func main() {
 	noTouch := flag.Bool("no-touch", false, "create: do not require Touch ID for this key")
 	postHook := flag.String("post-hook", "", "create: run command after key creation")
 	listKeys := flag.Bool("list", false, "list all managed keys")
+	listJSON := flag.Bool("json", false, "list: output as JSON array")
+	statusPath := flag.String("status", "", "check agent health at the given socket path")
 	deleteKey := flag.String("delete", "", "delete the key with the given label")
 	deleteAll := flag.Bool("delete-all", false, "delete all managed keys")
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
@@ -112,17 +124,46 @@ func main() {
 		log.Fatalf("Failed to initialize key store: %v\n", err)
 	}
 
+	if *launchdMode && *socketPath != "" {
+		log.Fatal("-launchd and -l are mutually exclusive")
+	}
+
 	switch {
 	case *createKey != "":
 		cmdCreate(store, *createKey, !*noTouch, *postHook)
 	case *listKeys:
-		cmdList(store)
+		cmdList(store, *listJSON)
+	case *statusPath != "":
+		cmdStatus(*statusPath)
 	case *deleteKey != "":
 		cmdDelete(store, *deleteKey)
 	case *deleteAll:
-		cmdDeleteAll(store)
+		keys, err := store.List()
+		if err != nil {
+			log.Fatalf("Failed to list keys: %v\n", err)
+		}
+		if len(keys) == 0 {
+			fmt.Println("No keys to delete.")
+			return
+		}
+		if term.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Printf("Delete %d key(s)? [y/N] ", len(keys))
+			var answer string
+			fmt.Scanln(&answer)
+			if answer != "y" && answer != "Y" {
+				fmt.Println("Aborted.")
+				return
+			}
+		}
+		var labels []string
+		for _, k := range keys {
+			labels = append(labels, k.Label)
+		}
+		cmdDeleteAll(store, labels)
+	case *launchdMode:
+		cmdRun(store, "", true, *auditLogPath, *peerCheck, *rateLimit, *allowedCallersFile)
 	case *socketPath != "":
-		cmdRun(store, *socketPath, *auditLogPath, *peerCheck, *rateLimit, *allowedCallersFile)
+		cmdRun(store, *socketPath, false, *auditLogPath, *peerCheck, *rateLimit, *allowedCallersFile)
 	default:
 		flag.Usage()
 		os.Exit(1)
@@ -239,6 +280,17 @@ func writePubKeyFile(label, pubKeyStr string) string {
 	return pubFile
 }
 
+func removePubKeyFile(label string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	pubFile := filepath.Join(home, ".ssh", fmt.Sprintf("touchid-agent-%s.pub", label))
+	if err := os.Remove(pubFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("Warning: could not remove public key file %s: %v", pubFile, err)
+	}
+}
+
 func runPostHook(hookCmd, label, pubKeyStr, pubFile string, touchRequired bool) error {
 	if hookCmd == "" {
 		return nil
@@ -258,10 +310,38 @@ func runPostHook(hookCmd, label, pubKeyStr, pubFile string, touchRequired bool) 
 	return nil
 }
 
-func cmdList(store KeyStore) {
+type keyListEntry struct {
+	Label        string `json:"label"`
+	RequireTouch bool   `json:"require_touch"`
+	PublicKey    string `json:"public_key"`
+}
+
+func cmdList(store KeyStore, jsonOutput bool) {
 	keys, err := store.List()
 	if err != nil {
 		log.Fatalf("Failed to list keys: %v\n", err)
+	}
+
+	if jsonOutput {
+		var entries []keyListEntry
+		for _, k := range keys {
+			sshPub, err := ssh.NewPublicKey(k.publicKey)
+			if err != nil {
+				continue
+			}
+			entries = append(entries, keyListEntry{
+				Label:        k.Label,
+				RequireTouch: k.RequireTouch,
+				PublicKey:    strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))),
+			})
+		}
+		if entries == nil {
+			entries = []keyListEntry{}
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(entries)
+		return
 	}
 
 	if len(keys) == 0 {
@@ -292,18 +372,42 @@ func cmdDelete(store KeyStore, label string) {
 	if err := store.Delete(label); err != nil {
 		log.Fatalf("Failed to delete key: %v\n", err)
 	}
+	removePubKeyFile(label)
 	fmt.Printf("Key '%s' deleted.\n", label)
 }
 
-func cmdDeleteAll(store KeyStore) {
+func cmdDeleteAll(store KeyStore, labels []string) {
 	if err := store.DeleteAll(); err != nil {
 		log.Fatalf("Failed to delete keys: %v\n", err)
+	}
+	for _, label := range labels {
+		removePubKeyFile(label)
 	}
 	fmt.Println("All keys deleted.")
 }
 
-func cmdRun(store KeyStore, socketPath, auditLogPath string, peerCheck bool, rateLimit int, allowedCallersFile string) {
-	if term.IsTerminal(int(os.Stdin.Fd())) {
+func cmdStatus(socketPath string) {
+	conn, err := net.DialTimeout("unix", socketPath, 5*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Agent unreachable: %v\n", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	client := agent.NewClient(conn)
+	keys, err := client.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Agent error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Agent is running. %d key(s) available.\n", len(keys))
+}
+
+const launchdIdleTimeout = 10 * time.Minute
+
+func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string, peerCheck bool, rateLimit int, allowedCallersFile string) {
+	if !launchd && term.IsTerminal(int(os.Stdin.Fd())) {
 		log.Println("Warning: touchid-agent is meant to run as a background daemon.")
 		log.Println("Running multiple instances is likely to lead to conflicts.")
 		log.Println("Consider using the launchd service.")
@@ -339,24 +443,36 @@ func cmdRun(store KeyStore, socketPath, auditLogPath string, peerCheck bool, rat
 
 	a := &Agent{store: store, audit: audit, policy: policy}
 
+	var l net.Listener
+	if launchd {
+		var err error
+		l, err = launchdListener()
+		if err != nil {
+			log.Fatalf("Failed to activate launchd socket: %v\n", err)
+		}
+		log.Printf("Listening via launchd socket activation (idle timeout: %v)", launchdIdleTimeout)
+	} else {
+		os.Remove(socketPath)
+		if err := os.MkdirAll(filepath.Dir(socketPath), 0700); err != nil {
+			log.Fatalln("Failed to create UNIX socket directory:", err)
+		}
+		oldMask := syscall.Umask(0077)
+		var err error
+		l, err = net.Listen("unix", socketPath)
+		syscall.Umask(oldMask)
+		if err != nil {
+			log.Fatalln("Failed to listen on UNIX socket:", err)
+		}
+		if err := os.Chmod(socketPath, 0600); err != nil {
+			log.Printf("Warning: could not set socket permissions: %v", err)
+		}
+		log.Printf("Listening on %s\n", socketPath)
+	}
+
+	// Signal handling: close the listener so the accept loop exits,
+	// then let normal control flow drain connections and run cleanup.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
-
-	os.Remove(socketPath)
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0700); err != nil {
-		log.Fatalln("Failed to create UNIX socket directory:", err)
-	}
-	oldMask := syscall.Umask(0077)
-	l, err := net.Listen("unix", socketPath)
-	syscall.Umask(oldMask)
-	if err != nil {
-		log.Fatalln("Failed to listen on UNIX socket:", err)
-	}
-
-	if err := os.Chmod(socketPath, 0600); err != nil {
-		log.Printf("Warning: could not set socket permissions: %v", err)
-	}
-
 	go func() {
 		for sig := range sigCh {
 			if sig == syscall.SIGHUP {
@@ -365,25 +481,53 @@ func cmdRun(store KeyStore, socketPath, auditLogPath string, peerCheck bool, rat
 			}
 			log.Printf("Received %s, shutting down.", sig)
 			l.Close()
-			os.Remove(socketPath)
-			audit.Close()
-			os.Exit(0)
+			return
 		}
 	}()
 
-	log.Printf("Listening on %s\n", socketPath)
+	// In launchd mode, exit after a period of inactivity so launchd can
+	// restart us on demand. This keeps the idle footprint at zero.
+	var idleTimer *time.Timer
+	if launchd {
+		idleTimer = time.AfterFunc(launchdIdleTimeout, func() {
+			log.Println("Idle timeout reached, exiting for launchd to restart on demand.")
+			l.Close()
+		})
+	}
 
+	var wg sync.WaitGroup
 	for {
 		conn, err := l.Accept()
 		if err != nil {
+			if launchd {
+				debugf("accept loop ended: %v", err)
+				break
+			}
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
 				log.Println("Temporary Accept error, sleeping 1s:", err)
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			log.Fatalln("Failed to accept connections:", err)
+			// Listener closed by signal or other fatal error.
+			break
 		}
-		go a.serveConn(conn)
+		if idleTimer != nil {
+			idleTimer.Reset(launchdIdleTimeout)
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.serveConn(conn)
+		}()
 	}
+
+	log.Println("Waiting for active connections to finish...")
+	wg.Wait()
+
+	if !launchd {
+		os.Remove(socketPath)
+	}
+	audit.Close()
+	log.Println("Shutdown complete.")
 }
