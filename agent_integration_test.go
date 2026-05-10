@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -224,5 +225,79 @@ func TestAgentSocket_Permissions(t *testing.T) {
 	perm := info.Mode().Perm()
 	if perm != 0600 {
 		t.Errorf("socket permissions = %o, want 0600", perm)
+	}
+}
+
+func TestAgentSocket_GracefulShutdown(t *testing.T) {
+	sock := testSocketPath(t)
+
+	store := NewMockKeyStore()
+	a := &Agent{
+		store:  store,
+		audit:  NewStderrAuditLogger(),
+		policy: NewPeerPolicy(false, 0, nil),
+	}
+	store.Generate("drain-test", false)
+
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the graceful shutdown accept loop from cmdRun.
+	var wg sync.WaitGroup
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				a.serveConn(conn)
+			}()
+		}
+	}()
+
+	// Open a client connection and keep it alive.
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := agent.NewClient(conn)
+
+	keys, err := client.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("expected 1 key, got %d", len(keys))
+	}
+
+	// Close the listener (simulates SIGTERM closing it).
+	l.Close()
+
+	// The existing connection should still be usable.
+	keys, err = client.List()
+	if err != nil {
+		t.Fatalf("existing connection should survive listener close: %v", err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("expected 1 key after listener close, got %d", len(keys))
+	}
+
+	// Close the client; the wg.Wait() should then complete.
+	conn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for connections to drain")
 	}
 }

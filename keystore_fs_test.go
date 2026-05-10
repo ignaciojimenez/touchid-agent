@@ -223,3 +223,56 @@ func TestFilesystemKeyStore_GenerateMissingDirIsAnError(t *testing.T) {
 		t.Fatal("expected error generating into missing dir")
 	}
 }
+
+func TestFilesystemKeyStore_Lifecycle(t *testing.T) {
+	dir := t.TempDir()
+	s := &FilesystemKeyStore{Dir: dir}
+
+	// Empty store.
+	keys, err := s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("expected 0 keys, got %d", len(keys))
+	}
+
+	// Create keys.
+	writeTestKeyfile(t, dir, "alpha", true)
+	writeTestKeyfile(t, dir, "beta", false)
+
+	keys, err = s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 {
+		t.Fatalf("expected 2 keys, got %d", len(keys))
+	}
+	if keys[0].Label != "alpha" || keys[1].Label != "beta" {
+		t.Errorf("unexpected labels: %s, %s", keys[0].Label, keys[1].Label)
+	}
+
+	// Delete one key.
+	if err := s.Delete("alpha"); err != nil {
+		t.Fatal(err)
+	}
+	keys, err = s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0].Label != "beta" {
+		t.Fatalf("expected [beta], got %v", keys)
+	}
+
+	// Delete all.
+	if err := s.DeleteAll(); err != nil {
+		t.Fatal(err)
+	}
+	keys, err = s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("expected 0 keys after DeleteAll, got %d", len(keys))
+	}
+}
