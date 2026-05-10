@@ -477,6 +477,69 @@ func cmdMigratePlist(plistPath string, dryRun, noReload bool) {
 	fmt.Printf("    touchid-agent -status %s\n", socketPath)
 }
 
+// ensureAction describes what cmdEnsureUserPlist should do given the
+// current state of the per-user plist.
+type ensureAction int
+
+const (
+	ensureActionInstall       ensureAction = iota // no/missing plist → install one
+	ensureActionAlreadyOK                         // already socket-activated → no-op
+	ensureActionLeaveOldStyle                     // -l-mode plist present → leave alone, suggest -migrate-plist
+	ensureActionLeaveUnknown                      // unrecognized layout → leave alone
+)
+
+// decideEnsureAction is the pure decision function that drives
+// cmdEnsureUserPlist. Split out so it can be unit-tested without
+// invoking launchctl.
+func decideEnsureAction(existing *parsedPlist) ensureAction {
+	if existing == nil {
+		return ensureActionInstall
+	}
+	switch existing.classify() {
+	case plistModeSocketActivated:
+		return ensureActionAlreadyOK
+	case plistModeOldStyle:
+		return ensureActionLeaveOldStyle
+	default:
+		return ensureActionLeaveUnknown
+	}
+}
+
+// cmdEnsureUserPlist is the entry point for the system-wide bootstrap
+// LaunchAgent (`/Library/LaunchAgents/touchid-agent-bootstrap.plist`).
+// It runs once per user GUI session and idempotently makes sure the
+// per-user `~/Library/LaunchAgents/touchid-agent.plist` exists in
+// socket-activated form. After the first session it is a no-op.
+//
+// Failures are written to stderr but never bubble up as a non-zero
+// exit: the bootstrap plist would fire again on every login, and a
+// noisy failure loop is worse than a single missed install (which
+// the user can always recover via `touchid-agent -install-plist`).
+func cmdEnsureUserPlist() {
+	plistPath := defaultPlistPath()
+	existing, err := readPlist(plistPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ensure-user-plist: cannot read %s: %v\n", plistPath, err)
+		return
+	}
+	switch decideEnsureAction(existing) {
+	case ensureActionAlreadyOK:
+		return
+	case ensureActionLeaveOldStyle:
+		fmt.Fprintf(os.Stderr,
+			"ensure-user-plist: existing old-style plist at %s; leaving alone (run `touchid-agent -migrate-plist` to upgrade)\n",
+			plistPath)
+		return
+	case ensureActionLeaveUnknown:
+		fmt.Fprintf(os.Stderr,
+			"ensure-user-plist: unrecognized plist at %s; leaving alone\n",
+			plistPath)
+		return
+	case ensureActionInstall:
+		cmdInstallPlist(plistPath, "", false)
+	}
+}
+
 // socketFromOldArgs returns the value of -l from ProgramArguments, or "".
 func socketFromOldArgs(args []string) string {
 	for i, a := range args {

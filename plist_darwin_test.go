@@ -425,6 +425,35 @@ func TestParseStaleLModeProcesses_ExcludesSelf(t *testing.T) {
 	}
 }
 
+func TestDecideEnsureAction(t *testing.T) {
+	cases := []struct {
+		name string
+		path string // file content; empty string = no file at all
+		want ensureAction
+	}{
+		{"missing plist installs", "", ensureActionInstall},
+		{"socket-activated no-ops", socketActivatedPlist, ensureActionAlreadyOK},
+		{"old-style left alone", oldStylePlist, ensureActionLeaveOldStyle},
+		{"old-style without extras left alone", oldStyleNoExtraFlags, ensureActionLeaveOldStyle},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var existing *parsedPlist
+			if tc.path != "" {
+				path := writeTempPlist(t, tc.path)
+				p, err := readPlist(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				existing = p
+			}
+			if got := decideEnsureAction(existing); got != tc.want {
+				t.Errorf("decideEnsureAction = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBackupPathFormat(t *testing.T) {
 	bk := backupPath("/foo/bar.plist")
 	if !strings.HasPrefix(bk, "/foo/bar.plist"+plistBackupSuffix+"-") {

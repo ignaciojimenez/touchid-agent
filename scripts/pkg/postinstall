@@ -1,0 +1,36 @@
+#!/bin/bash
+#
+# postinstall — touchid-agent pkg
+#
+# pkgbuild --ownership recommended already sets ownership and mode
+# from the source files; this script is belt-and-suspenders for the
+# bootstrap LaunchAgent and surfaces useful diagnostics in installer
+# logs (visible via `log show --predicate 'process == "installd"'`).
+#
+# Deliberately does NOT call `launchctl bootstrap` or `launchctl load`:
+# the bootstrap plist activates on each user's next GUI session via
+# launchd's natural LimitLoadToSessionType=Aqua handling, which
+# avoids the pitfalls of running launchctl as root against a target
+# user session.
+
+set -euo pipefail
+
+BOOTSTRAP_PLIST="/Library/LaunchAgents/touchid-agent-bootstrap.plist"
+BINARY="/usr/local/bin/touchid-agent"
+
+if [[ -f "$BOOTSTRAP_PLIST" ]]; then
+  chown root:wheel "$BOOTSTRAP_PLIST"
+  chmod 644 "$BOOTSTRAP_PLIST"
+fi
+
+if [[ -x "$BINARY" ]]; then
+  chown root:wheel "$BINARY"
+  chmod 755 "$BINARY"
+fi
+
+echo "touchid-agent installed."
+echo "  binary:    $BINARY"
+echo "  bootstrap: $BOOTSTRAP_PLIST"
+echo "Per-user activation runs on each user's next GUI login."
+
+exit 0

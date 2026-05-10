@@ -25,33 +25,51 @@ jobs:
           go-version-file: go.mod
           check-latest: false
 
-      - name: Import Developer ID code signing certificate
+      - name: Import Developer ID signing certificates
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_INSTALLER_CERTIFICATE: ${{ secrets.MACOS_INSTALLER_CERTIFICATE }}
+          MACOS_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           set -euo pipefail
-          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          APP_CERT_PATH="$RUNNER_TEMP/app-cert.p12"
+          INSTALLER_CERT_PATH="$RUNNER_TEMP/installer-cert.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
 
-          echo -n "$MACOS_CERTIFICATE" | base64 --decode -o "$CERT_PATH"
+          echo -n "$MACOS_CERTIFICATE" | base64 --decode -o "$APP_CERT_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          security import "$CERT_PATH" \
+          security import "$APP_CERT_PATH" \
             -P "$MACOS_CERTIFICATE_PASSWORD" \
             -A -t cert -f pkcs12 \
             -k "$KEYCHAIN_PATH"
+
+          # Installer cert is optional: if the secret is unset, the pkg
+          # build step downstream will produce an unsigned pkg (or skip
+          # entirely). This keeps `release.yml` working through the
+          # transitional period where the installer cert isn't yet
+          # provisioned.
+          if [[ -n "$MACOS_INSTALLER_CERTIFICATE" ]]; then
+            echo -n "$MACOS_INSTALLER_CERTIFICATE" | base64 --decode -o "$INSTALLER_CERT_PATH"
+            security import "$INSTALLER_CERT_PATH" \
+              -P "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" \
+              -A -t cert -f pkcs12 \
+              -k "$KEYCHAIN_PATH"
+            rm -f "$INSTALLER_CERT_PATH"
+          fi
+
           security set-key-partition-list \
             -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
-          rm -f "$CERT_PATH"
+          rm -f "$APP_CERT_PATH"
 
       - name: Build, sign, package, notarize
         env:
@@ -60,6 +78,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: make release VERSION=${{ github.ref_name }}
+
+      - name: Build .pkg installer
+        env:
+          MACOS_INSTALLER_SIGN_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: make pkg VERSION=${{ github.ref_name }}
 
       - name: Generate release notes
         run: ./scripts/release-notes.sh ${{ github.ref_name }} > dist/RELEASE_NOTES.md
@@ -71,13 +97,16 @@ jobs:
           set -euo pipefail
           VERSION="${{ github.ref_name }}"
           RELEASE_NAME="touchid-agent-${VERSION}-darwin-universal"
+          PKG_NAME="touchid-agent-${VERSION}.pkg"
           gh release create "$VERSION" \
             --title "touchid-agent ${VERSION}" \
             --notes-file dist/RELEASE_NOTES.md \
             "dist/${RELEASE_NAME}.tar.gz" \
             "dist/${RELEASE_NAME}.tar.gz.sha256" \
             "dist/${RELEASE_NAME}.zip" \
-            "dist/${RELEASE_NAME}.zip.sha256"
+            "dist/${RELEASE_NAME}.zip.sha256" \
+            "dist/${PKG_NAME}" \
+            "dist/${PKG_NAME}.sha256"
 
       - name: Clean up keychain
         if: always()

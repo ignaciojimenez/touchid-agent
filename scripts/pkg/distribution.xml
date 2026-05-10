@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+  <title>touchid-agent</title>
+  <organization>com.ignaciojimenez</organization>
+  <domains enable_localSystem="true"/>
+  <options customize="never" require-scripts="true" rootVolumeOnly="true" hostArchitectures="x86_64,arm64"/>
+  <volume-check>
+    <allowed-os-versions>
+      <os-version min="13.0"/>
+    </allowed-os-versions>
+  </volume-check>
+  <choices-outline>
+    <line choice="default">
+      <line choice="com.ignaciojimenez.touchid-agent"/>
+    </line>
+  </choices-outline>
+  <choice id="default" title="touchid-agent"/>
+  <choice id="com.ignaciojimenez.touchid-agent" visible="false">
+    <pkg-ref id="com.ignaciojimenez.touchid-agent"/>
+  </choice>
+  <pkg-ref id="com.ignaciojimenez.touchid-agent" version="__VERSION__" onConclusion="none">touchid-agent-component.pkg</pkg-ref>
+</installer-gui-script>

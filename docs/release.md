@@ -3,9 +3,11 @@
 A release of `touchid-agent` consists of:
 
 1. A signed, notarized universal Mach-O binary (`.tar.gz` and `.zip`).
-2. SHA-256 sidecar files for both archives.
-3. A GitHub release with auto-generated notes.
-4. A bumped Homebrew formula in the tap repo.
+2. A signed, notarized `.pkg` installer for fleet / MDM deployment
+   (see `docs/distribution-roadmap.md` Track #2).
+3. SHA-256 sidecar files for every archive and the pkg.
+4. A GitHub release with auto-generated notes.
+5. A bumped Homebrew formula in the tap repo.
 
 The intended path is **fully automated** via the GitHub Actions workflow
 at `.github/workflows/release.yml`, triggered on a `vX.Y.Z` tag push.
@@ -17,10 +19,17 @@ Manual fallback is documented at the bottom of this file.
 
 You need an active Apple Developer Program membership.
 
-- **Developer ID Application certificate** for code signing.
+- **Developer ID Application certificate** for code signing the binary.
   Generate from <https://developer.apple.com/account/resources/certificates>,
   install in Keychain Access, then export the cert + private key as a
   `.p12` (e.g. `developer-id.p12`).
+
+- **Developer ID Installer certificate** for signing the `.pkg`.
+  *Different cert*, same Apple Developer account. Same portal — pick
+  "Developer ID" → "Developer ID Installer" (not Application). Export
+  as a separate `.p12` (e.g. `developer-id-installer.p12`).
+  `notarytool` credentials below are shared between the binary and
+  the pkg; no separate notary setup is needed for the pkg.
 
 - **App-specific password** for `notarytool`.
   Generate at <https://appleid.apple.com> → Sign-In and Security → App-Specific Passwords.
@@ -50,12 +59,20 @@ Set the following on the repo (Settings → Secrets and variables → Actions):
 |---|---|
 | `MACOS_CERTIFICATE` | `base64 -i developer-id.p12 \| pbcopy` then paste |
 | `MACOS_CERTIFICATE_PASSWORD` | password used when exporting the `.p12` |
+| `MACOS_INSTALLER_CERTIFICATE` | `base64 -i developer-id-installer.p12 \| pbcopy` — for `.pkg` signing |
+| `MACOS_INSTALLER_CERTIFICATE_PASSWORD` | password used when exporting the installer `.p12` |
 | `KEYCHAIN_PASSWORD` | any random string; used for the ephemeral runner keychain |
-| `MACOS_SIGN_IDENTITY` | the certificate's common name, e.g. `Developer ID Application: Your Name (ABCD123456)` |
+| `MACOS_SIGN_IDENTITY` | the binary cert's common name, e.g. `Developer ID Application: Your Name (ABCD123456)` |
+| `MACOS_INSTALLER_SIGN_IDENTITY` | the installer cert's common name, e.g. `Developer ID Installer: Your Name (ABCD123456)` |
 | `APPLE_ID` | your Apple ID email |
 | `APPLE_TEAM_ID` | 10-char team ID |
 | `APPLE_APP_SPECIFIC_PASSWORD` | the `xxxx-xxxx-xxxx-xxxx` password |
 | `HOMEBREW_TAP_TOKEN` | PAT (classic, `repo` scope) or fine-grained token with read/write on `ignaciojimenez/homebrew-tap` |
+
+The two `MACOS_INSTALLER_*` secrets are optional for the workflow to
+run — if they're absent, the pkg-build step produces an unsigned pkg
+artifact (still attached to the release, but not Gatekeeper-acceptable).
+This makes the workflow forgiving during cert-rotation gaps.
 
 Find the exact `MACOS_SIGN_IDENTITY` string with:
 
@@ -87,15 +104,19 @@ git push origin v0.1.0
 The `Release` workflow will:
 
 1. Check out the tag.
-2. Import the Developer ID certificate into a temporary keychain.
+2. Import the Developer ID Application + Installer certificates into a
+   temporary keychain.
 3. Build the universal binary (`make universal`).
 4. Code-sign with hardened runtime + secure timestamp.
 5. Package `.zip` + `.tar.gz` with SHA-256 sidecars.
 6. Submit the `.zip` to Apple's notary service and `--wait` for the result.
-7. Generate release notes from `git log` since the previous tag.
-8. Create the GitHub release with all four artifacts attached.
-9. Tear down the keychain.
-10. (separate job) Update the `ignaciojimenez/homebrew-tap` formula with the new version and SHA-256.
+7. Build the `.pkg` installer (`make pkg`): `pkgbuild` →
+   `productbuild` → `productsign` → notarize → staple. SHA-256 sidecar.
+8. Generate release notes from `git log` since the previous tag.
+9. Create the GitHub release with all artifacts attached
+   (binary `.tar.gz`/`.zip` + sha256, `.pkg` + sha256).
+10. Tear down the keychain.
+11. (separate job) Update the `ignaciojimenez/homebrew-tap` formula with the new version and SHA-256.
 
 The full pipeline takes ~5–10 minutes, mostly notarization wait time.
 

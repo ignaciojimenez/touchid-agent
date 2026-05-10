@@ -44,7 +44,7 @@ RELEASE_ZIP  := $(DIST_DIR)/$(RELEASE_NAME).zip
 RELEASE_TGZ  := $(DIST_DIR)/$(RELEASE_NAME).tar.gz
 
 .PHONY: build sign install install-completions install-launchd \
-        universal package notarize release release-notes \
+        universal package notarize release release-notes pkg \
         clean clean-dist test test-cover vuln
 
 $(SWIFT_LIB): $(SWIFT_SOURCES)
@@ -171,6 +171,15 @@ endif
 # End-to-end release pipeline: build universal, sign, package, notarize.
 # Requires CODESIGN_IDENTITY and notarization credentials.
 release: clean-dist universal sign package notarize
+
+# Build a signed, notarized .pkg installer for fleet/MDM deployment
+# (see docs/distribution-roadmap.md Track #2). Requires a Developer ID
+# Application-signed binary in the repo root (run `make universal sign`
+# first). Signs and notarizes only when MACOS_INSTALLER_SIGN_IDENTITY
+# and APPLE_ID/APPLE_TEAM_ID/APPLE_PASSWORD are set; otherwise produces
+# an unsigned pkg suitable for local development.
+pkg:
+	@./scripts/build-pkg.sh $(VERSION)
 
 # Render a release-notes draft to stdout from git log since the previous tag.
 release-notes:

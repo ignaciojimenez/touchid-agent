@@ -110,7 +110,9 @@ and upload a `.pkg` artifact on every `vX.Y.Z` tag. Steps:
   - `Library/Application Support/touchid-agent/postinstall` (post-
     install script)
 - `productbuild` to wrap it. Use a `distribution.xml` to enforce
-  `min-os = 11.0` and reject installs on older macOS.
+  `min-os = 13.0` (Ventura) and reject installs on older macOS.
+  macOS 11 / 12 no longer receive Apple security updates, so they
+  are not a floor a security tool should support.
 - `productsign` with the **Developer ID Installer** certificate.
   This is a *different cert* from the Developer ID Application cert
   the binary signing uses today (`docs/release.md` covers the
@@ -125,33 +127,68 @@ and upload a `.pkg` artifact on every `vX.Y.Z` tag. Steps:
 Everything new lives in `.github/workflows/release.yml` and a small
 `scripts/build-pkg.sh`. No changes to the Go code.
 
-#### 2. System-wide LaunchAgent variant
+#### 2. Per-user activation from a system-wide pkg
 
 Today's plist (per-user) lives at
 `~/Library/LaunchAgents/touchid-agent.plist` and is loaded only for
 the user who installs it. A pkg cannot run as a specific user during
-install — it runs as root. The system-wide LaunchAgent pattern:
+install — it runs as root.
 
-- Plist installed to `/Library/LaunchAgents/touchid-agent.plist`,
-  owned `root:wheel`, mode 644.
-- launchd loads it for *every* user who logs in.
-- `SockPathName` uses launchd's `$HOME` substitution so each user
-  gets their own socket: `$HOME/Library/Caches/touchid-agent/agent.sock`.
-- The agent's keystore at `~/.touchid-agent/keys/` is per-user already,
-  so each user gets independent keys with no further changes.
+**Constraint discovered 2026-05-10:** `launchd` does not perform any
+variable substitution (`$HOME`, `~`, etc.) in plist string values —
+confirmed against Apple's developer docs, TN2083, and `man 5
+launchd.plist`. So a single `/Library/LaunchAgents/touchid-agent.plist`
+with `$HOME/...` in `SockPathName` would create one shared socket at
+the literal path, not per-user sockets. Per-user paths must be either
+hardcoded per user or constructed at runtime.
 
-Pkg post-install script:
-1. Drop the plist at `/Library/LaunchAgents/touchid-agent.plist`,
-   `chown root:wheel`, `chmod 644`.
-2. Do **not** `launchctl load` from postinstall. Let it activate on
-   next user login. This avoids `launchctl bootstrap` complications
-   when running as root over a target user session.
-3. If a user-installed plist exists at
-   `~/Library/LaunchAgents/touchid-agent.plist` for any user, leave
-   it alone — log a warning. The system-wide plist takes effect for
-   users who don't have a per-user one.
+**Adopted design — bootstrap LaunchAgent:**
 
-#### 3. `docs/deployment.md`
+- Pkg installs `/Library/LaunchAgents/touchid-agent-bootstrap.plist`,
+  owned `root:wheel`, mode 644. This is a system-wide LaunchAgent
+  with `LimitLoadToSessionType=Aqua` and `RunAtLoad=true`, so launchd
+  runs it once per user GUI session.
+- The bootstrap plist invokes a new `touchid-agent -ensure-user-plist`
+  subcommand. That subcommand:
+  - Resolves the running user's `$HOME` at runtime (the agent already
+    knows how to do this).
+  - If `~/Library/LaunchAgents/touchid-agent.plist` is already present
+    and socket-activated, exits 0 immediately.
+  - Otherwise runs the same logic as `-install-plist`, writing the
+    per-user socket-activated plist into the user's `LaunchAgents`
+    directory and loading it.
+- The agent's keystore at `~/.touchid-agent/keys/` is per-user
+  already, so each user gets independent keys.
+
+Pkg postinstall script just drops the binary and the bootstrap plist.
+It does **not** `launchctl load` anything — launchd picks up the
+bootstrap plist on next session start.
+
+This works for users that exist at install time *and* users created
+later (their first GUI login activates the bootstrap). It also no-ops
+cleanly on users who already installed via brew + `-install-plist`.
+
+#### 3. Configuration profile (`.mobileconfig`)
+
+A signed configuration profile that pins runtime flags via Managed
+Preferences so IT can enforce policy across the fleet:
+
+- Bundle ID `com.ignaciojimenez.touchid-agent` (matches the launchd
+  label).
+- Managed keys: `audit_log_path`, `peer_check`, `rate_limit`,
+  `allowed_callers`. The agent reads these via
+  `CFPreferencesCopyAppValue` and treats Managed values as overrides
+  for any CLI flag of the same name.
+- Signed with the **Developer ID Installer** cert (same one used for
+  the `.pkg`).
+- Shipped as a separate artifact (`touchid-agent-vX.Y.Z.mobileconfig`)
+  alongside the `.pkg` so Munki can deploy it as a `configuration_profile`
+  pkginfo type — no install order coupling with the binary pkg.
+
+Without this, IT can deploy the agent but cannot enforce the security
+flags that justify deploying it. SOC 2 reviewers will flag the gap.
+
+#### 4. `docs/deployment.md`
 
 A one-page guide with three sections:
 
@@ -159,9 +196,11 @@ A one-page guide with three sections:
   then `touchid-agent -install-plist`. Already documented in README.
 - **Team** — same as Individual plus a shared `~/.ssh/config` snippet
   for `IdentityAgent`.
-- **Fleet** — download the `.pkg`, MDM importer commands for Munki
-  and Jamf as concrete examples (e.g. `munkiimport
-  touchid-agent-vX.Y.Z.pkg`).
+- **Fleet** — download the `.pkg` + `.mobileconfig`, with **Munki as
+  the primary worked example** (`munkiimport touchid-agent-vX.Y.Z.pkg`,
+  pkginfo for the configuration profile, recommended `installs` array
+  for version detection). Jamf / Mosyle / Kandji as a "same idea,
+  different tool" appendix.
 
 This is the artifact that lets the maintainer pitch `touchid-agent`
 internally without IT bouncing the conversation.
@@ -170,24 +209,23 @@ internally without IT bouncing the conversation.
 
 - CI pkg build: ~1 day. Mostly figuring out Developer ID Installer
   cert provisioning + notarytool args. Code is small.
-- System-wide plist variant: ~half day. Mostly testing per-user `$HOME`
-  resolution and confirming the agent picks up the right keystore
-  directory under multiple-user scenarios.
-- `docs/deployment.md`: ~2 hours.
-- **Total: ~2 days of focused work.**
+- Bootstrap LaunchAgent + `-ensure-user-plist` subcommand: ~1 day.
+  The subcommand is a thin wrapper around the existing
+  `cmdInstallPlist`; the bootstrap plist is small. Most of the time
+  goes to multi-user testing (existing brew users, fresh users,
+  newly created users post-install).
+- Configuration profile + Managed Preferences read path in the agent:
+  ~1 day. Profile authoring is mechanical; the agent-side change is a
+  small `CFPreferencesCopyAppValue` lookup that overrides flag values.
+- `docs/deployment.md` (Munki-first): ~3 hours.
+- **Total: ~3 days of focused work.**
 
 ### Deferred (do later if there's actual demand)
 
-- **Configuration profile (`.mobileconfig`)** to let IT pin
-  `-audit-log`, `-peer-check`, `-rate-limit`, `-allowed-callers` via
-  Managed Preferences. Without this, technical capability exists but
-  not enforcement; SOC 2 reviewers will eventually flag that. Defer
-  until a concrete pilot at the maintainer's company asks for it —
-  config profiles need an MDM in the loop to test.
 - **Audit-log shipper recipe** (`docs/audit-shipping.md`) with a
   Vector / FluentBit example reading
   `/var/log/touchid-agent/audit.log` → SIEM. Not code, just a recipe.
-  Defer until the same pilot needs centralized logs.
+  Defer until the Munki pilot asks for centralized logs.
 
 ### Things explicitly NOT to build under Track #2
 
@@ -279,28 +317,34 @@ CLI subcommand that:
 #### Registry server (or contract)
 
 The piece that gets hand-waved most: where do enrollment payloads go?
-Two paths, with a strong recommendation to keep both viable.
 
-- **Build a reference registry.** A Cloudflare Worker + D1 is enough.
-  Endpoints: `POST /enroll`, `POST /devices/<id>/keys`,
-  `GET /keys?user=…`, `DELETE /keys/<fingerprint>`. ~200 LOC of
-  TypeScript. Good for solo / homelab / proof-of-concept.
-- **Integrate with whatever the company already has.** Most orgs
-  have Okta, Workspace, or a homegrown access database. Writing the
-  same enrollment payload to those systems is a per-company
-  integration job.
+The maintainer's company already runs an LDAP-backed SSH keyserver,
+and `contrib/hooks/custom-api-upload.sh` is the existing hook shape
+(POST `{label, public_key}` with HTTP basic auth). That gives Track #3
+a concrete target: the v1 deliverable is the **webhook contract +
+LDAP-keyserver adapter**, not a greenfield registry.
 
-**Recommendation.** Design the enroll API as a pluggable HTTP
-webhook with bearer auth. Ship a reference Cloudflare Worker
-implementation. Document the API contract precisely so IT can swap
-in their own backend that speaks the same shape.
+Two paths, with a strong recommendation to keep both viable:
+
+- **Integrate with the existing LDAP keyserver** (primary path). The
+  hook in `contrib/hooks/` is the seed; the v1 enroll/inventory
+  endpoints should be designed so that adapter is a thin wrapper.
+- **Reference Cloudflare Worker registry** (exploration only). Useful
+  as a public proof-of-concept for solo / homelab users who don't have
+  an LDAP keyserver. Deprioritized — build only if there's a
+  non-internal user who actually needs it.
+
+**Recommendation.** Design the enroll API as a pluggable HTTP webhook
+with bearer auth. Lock the contract against the LDAP keyserver
+integration first; treat the Cloudflare Worker as optional reference.
 
 ### Design decisions to make (with recommendations)
 
 #### 1. Build a registry vs. integrate with existing systems
 
-See above — pluggable webhook with reference impl. Don't pick one or
-the other; design for both.
+See above — pluggable webhook, with the LDAP keyserver adapter as
+the load-bearing v1 integration. Cloudflare Worker reference impl
+is exploratory only.
 
 #### 2. How does the agent find the registry URL
 
@@ -393,10 +437,15 @@ mTLS + App Attest (v2) would roughly double that.
 ### v1 / v2 split
 
 - **v1**: enroll subcommand, inventory subcommand, bearer auth, self-
-  attestation, env-var/config-file URL, reference Cloudflare Worker
-  registry. Enough to demonstrate end-to-end and pilot at one team.
-- **v2**: mTLS, App Attest, MDM-pushed config profile, GitHub
-  Enterprise Org Keys API integration as a registry backend.
+  attestation, env-var/config-file URL, **LDAP-keyserver adapter**
+  modeled on `contrib/hooks/custom-api-upload.sh`. Enough to
+  demonstrate end-to-end and pilot at one team.
+- **v2**: mTLS, App Attest, GitHub Enterprise Org Keys API
+  integration as a second registry backend, optional Cloudflare
+  Worker reference impl for non-internal users.
+
+Note: the MDM-pushed config profile is no longer in v2 — it moved
+into Track #2 once the Munki pilot was confirmed.
 
 ### Things explicitly NOT to build under Track #3
 
@@ -410,16 +459,26 @@ mTLS + App Attest (v2) would roughly double that.
 
 ---
 
-## Open questions to revisit when starting Track #2 or #3
+## Resolved as of 2026-05-10
 
-- Is there a concrete pilot inside the maintainer's company that
-  would consume Track #2's pkg? If yes, prioritize the
-  configuration-profile work that's currently deferred — the pilot
-  will need it for SOC 2.
-- Does the company already have an SSH key registry / inventory
-  system? If yes, Track #3's "build a reference registry" piece is
-  unnecessary; jump straight to defining the webhook API and writing
-  the integration adapter.
-- macOS version floor. Today: macOS 11+ (CryptoKit's `SecureEnclave.P256`).
-  Track #2's `min-os` enforcement should match. App Attest in v2
-  needs macOS 11+ already, so no new floor.
+These were open when this roadmap was first written; the maintainer
+answered them before Track #2 work started. Recorded here so future
+sessions don't re-litigate.
+
+- **Pilot at the maintainer's company: confirmed, distributing via
+  Munki.** Configuration profile work is therefore in Track #2 scope,
+  not deferred — see `#3 Configuration profile` above. `docs/deployment.md`
+  uses Munki as the primary worked example.
+- **Existing key registry: yes — an LDAP-backed SSH keyserver.** The
+  hook in `contrib/hooks/custom-api-upload.sh` is the seed shape for
+  the integration. Track #3's v1 deliverable is the webhook contract
+  + LDAP adapter; the Cloudflare Worker reference registry is
+  exploratory only.
+- **macOS version floor: raise to macOS 13 (Ventura).** macOS 11 / 12
+  no longer receive Apple security updates as of 2024 — keeping them
+  as a floor for a security tool is self-contradictory. macOS 13 still
+  covers any Mac Apple has shipped in roughly the last five years,
+  which matches the pilot fleet's hardware profile. Applies to:
+  - Track #2 `distribution.xml` `min-os = 13.0`
+  - Brew formula `depends_on macos: ">= :ventura"`
+  - Any new code that wants APIs newer than `SecureEnclave.P256`

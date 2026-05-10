@@ -81,6 +81,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  touchid-agent -migrate-plist [-dry-run] [-no-reload]\n")
 		fmt.Fprintf(os.Stderr, "        Rewrite an existing -l-mode plist to socket activation,\n")
 		fmt.Fprintf(os.Stderr, "        preserving -audit-log and other agent flags. Idempotent.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -ensure-user-plist\n")
+		fmt.Fprintf(os.Stderr, "        Bootstrap helper invoked by the system-wide pkg's LaunchAgent.\n")
+		fmt.Fprintf(os.Stderr, "        Equivalent to -install-plist but never errors out, so the\n")
+		fmt.Fprintf(os.Stderr, "        bootstrap plist can fire on every login without spamming logs.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
 		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l / -launchd) mode:\n")
@@ -109,6 +113,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	installPlist := flag.Bool("install-plist", false, "write launchd plist (socket activation) and load it")
 	migratePlist := flag.Bool("migrate-plist", false, "rewrite an existing -l-mode plist to socket activation")
+	ensureUserPlist := flag.Bool("ensure-user-plist", false, "bootstrap helper: idempotently install the per-user plist (used by the system-wide pkg)")
 	plistPath := flag.String("plist", "", "plist path (defaults to ~/Library/LaunchAgents/touchid-agent.plist)")
 	dryRun := flag.Bool("dry-run", false, "migrate-plist: print proposed plist without writing")
 	noReload := flag.Bool("no-reload", false, "install-plist/migrate-plist: skip launchctl load/unload")
@@ -138,6 +143,10 @@ func main() {
 	}
 	if *migratePlist {
 		cmdMigratePlist(*plistPath, *dryRun, *noReload)
+		return
+	}
+	if *ensureUserPlist {
+		cmdEnsureUserPlist()
 		return
 	}
 
