@@ -25,6 +25,11 @@ _touchid-agent() {
         '-status[Check if the agent at PATH is healthy]:socket path:_files' \
         '-delete[Delete the key with the given label]:label:' \
         '-delete-all[Delete all managed keys]' \
+        '-install-plist[Write launchd plist (socket activation) and load it]' \
+        '-migrate-plist[Rewrite an existing -l-mode plist to socket activation]' \
+        '-plist[Plist path (defaults to ~/Library/LaunchAgents/touchid-agent.plist)]:plist path:_files' \
+        '-dry-run[migrate-plist: print proposed plist without writing]' \
+        '-no-reload[install-plist/migrate-plist: skip launchctl load/unload]' \
         '-v[Enable verbose debug logging]' \
         '-version[Print version and exit]'
 }
