@@ -83,7 +83,6 @@ secureenclave_darwin.go  Go side of the cgo bridge, Key type
 contrib/hooks/           Example provisioning hooks (GitHub, etc.)
 contrib/completions/     Shell completions (bash, zsh)
 contrib/plist/           launchd service template
-contrib/enterprise/      Enterprise deployment templates (setup, plist)
 ```
 
 See `docs/THREAT_MODEL.md` for the security model.
