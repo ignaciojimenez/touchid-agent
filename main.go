@@ -75,6 +75,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        Delete all managed keys.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -status PATH\n")
 		fmt.Fprintf(os.Stderr, "        Check if the agent at PATH is healthy. Exits 0 if reachable.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -install-plist [-audit-log PATH] [-no-reload]\n")
+		fmt.Fprintf(os.Stderr, "        Write a launchd plist (socket activation) and load it.\n")
+		fmt.Fprintf(os.Stderr, "        Idempotent; refuses to overwrite an old-style plist.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -migrate-plist [-dry-run] [-no-reload]\n")
+		fmt.Fprintf(os.Stderr, "        Rewrite an existing -l-mode plist to socket activation,\n")
+		fmt.Fprintf(os.Stderr, "        preserving -audit-log and other agent flags. Idempotent.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
 		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l / -launchd) mode:\n")
@@ -101,6 +107,11 @@ func main() {
 	deleteAll := flag.Bool("delete-all", false, "delete all managed keys")
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	installPlist := flag.Bool("install-plist", false, "write launchd plist (socket activation) and load it")
+	migratePlist := flag.Bool("migrate-plist", false, "rewrite an existing -l-mode plist to socket activation")
+	plistPath := flag.String("plist", "", "plist path (defaults to ~/Library/LaunchAgents/touchid-agent.plist)")
+	dryRun := flag.Bool("dry-run", false, "migrate-plist: print proposed plist without writing")
+	noReload := flag.Bool("no-reload", false, "install-plist/migrate-plist: skip launchctl load/unload")
 
 	flag.Parse()
 
@@ -117,6 +128,17 @@ func main() {
 	log.SetFlags(0)
 	if *verbose {
 		debugLogger = log.New(os.Stderr, "debug: ", log.Ltime)
+	}
+
+	// Plist subcommands do not need a key store and may run before the
+	// agent has ever been used.
+	if *installPlist {
+		cmdInstallPlist(*plistPath, *auditLogPath, *noReload)
+		return
+	}
+	if *migratePlist {
+		cmdMigratePlist(*plistPath, *dryRun, *noReload)
+		return
 	}
 
 	store, err := DefaultKeyStore()
@@ -402,6 +424,57 @@ func cmdStatus(socketPath string) {
 	}
 
 	fmt.Printf("Agent is running. %d key(s) available.\n", len(keys))
+
+	if pids := findStaleLModeProcesses(socketPath, os.Getpid()); len(pids) > 0 {
+		fmt.Fprintf(os.Stderr, "\nWarning: detected %d touchid-agent process(es) running with -l on the same socket: %v\n", len(pids), pids)
+		fmt.Fprintln(os.Stderr, "This usually means an old plist is still loaded. Consider:")
+		fmt.Fprintln(os.Stderr, "    touchid-agent -migrate-plist")
+	}
+}
+
+// findStaleLModeProcesses returns PIDs of touchid-agent processes
+// running with `-l SAMESOCKET`, excluding selfPid. Used by -status to
+// warn about an old `-l`-mode agent still loaded after a migration.
+// Returns nil on error or no matches.
+func findStaleLModeProcesses(socketPath string, selfPid int) []int {
+	out, err := exec.Command("/bin/ps", "-axo", "pid=,command=").Output()
+	if err != nil {
+		return nil
+	}
+	return parseStaleLModeProcesses(string(out), socketPath, selfPid)
+}
+
+// parseStaleLModeProcesses parses `ps -axo pid=,command=` output and
+// returns PIDs of touchid-agent processes invoking `-l socketPath`,
+// excluding selfPid. Pure-function for testability.
+func parseStaleLModeProcesses(psOutput, socketPath string, selfPid int) []int {
+	var pids []int
+	for _, line := range strings.Split(psOutput, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, " ", 2)
+		if len(fields) != 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid == selfPid {
+			continue
+		}
+		cmd := fields[1]
+		toks := strings.Fields(cmd)
+		if len(toks) == 0 || filepath.Base(toks[0]) != "touchid-agent" {
+			continue
+		}
+		for i, t := range toks {
+			if t == "-l" && i+1 < len(toks) && toks[i+1] == socketPath {
+				pids = append(pids, pid)
+				break
+			}
+		}
+	}
+	return pids
 }
 
 const launchdIdleTimeout = 10 * time.Minute

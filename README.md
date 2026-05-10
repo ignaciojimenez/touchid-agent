@@ -34,6 +34,10 @@ make install CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 ## Usage
 
 ```bash
+# Install the launchd plist (socket activation: agent starts on demand,
+# exits after 10m idle). Idempotent.
+touchid-agent -install-plist
+
 # Create a key with Touch ID required per signature
 touchid-agent -create ssh
 
@@ -44,13 +48,15 @@ touchid-agent -create git -no-touch
 touchid-agent -create ssh-prod
 touchid-agent -create ssh-staging -no-touch
 
-# Run the agent
-touchid-agent -l /tmp/.touchid-agent.sock
-
 # Point SSH at the agent
-export SSH_AUTH_SOCK="/tmp/.touchid-agent.sock"
+export SSH_AUTH_SOCK="$HOME/Library/Caches/touchid-agent/agent.sock"
 ssh-add -L
 ```
+
+Upgrading from a previous version with a hand-installed `-l`-mode
+plist? Run `touchid-agent -migrate-plist` to rewrite it to socket
+activation in place (preserves `-audit-log` and other flags). See
+[docs/launchd.md](docs/launchd.md).
 
 Manage keys:
 

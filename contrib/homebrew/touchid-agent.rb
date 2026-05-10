@@ -41,7 +41,6 @@ class TouchidAgent < Formula
 
   def caveats
     socket = "#{Dir.home}/Library/Caches/touchid-agent/agent.sock"
-    plist  = "#{Dir.home}/Library/LaunchAgents/touchid-agent.plist"
     <<~EOS
       To use touchid-agent as your SSH agent, point SSH at the agent socket:
 
@@ -49,13 +48,14 @@ class TouchidAgent < Formula
           Host *
               IdentityAgent #{socket}
 
-      To run as a launchd background service (per-user), install the plist:
+      First-time install — write a launchd plist (socket activation) and load it:
 
-          mkdir -p "$HOME/Library/LaunchAgents" "#{File.dirname(socket)}" "$HOME/Library/Logs"
-          sed -e "s|__BINARY__|#{opt_bin}/touchid-agent|g" \\
-              -e "s|__HOME__|$HOME|g" \\
-              "#{pkgshare}/touchid-agent.plist" > "#{plist}"
-          launchctl load "#{plist}"
+          touchid-agent -install-plist
+
+      Upgrading from a previous version with a hand-installed -l-mode plist?
+      Rewrite it to socket activation in place (preserves -audit-log etc.):
+
+          touchid-agent -migrate-plist
 
       Create your first key:
 

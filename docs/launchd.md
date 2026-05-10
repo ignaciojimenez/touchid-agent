@@ -15,44 +15,65 @@ Benefits over the traditional always-running mode:
 - **Faster first-connection latency.** The socket is available
   immediately after login, before the agent process starts.
 
-### Quick setup
+### Quick setup (brew install)
+
+```bash
+touchid-agent -install-plist
+```
+
+This writes a socket-activation plist to
+`~/Library/LaunchAgents/touchid-agent.plist`, creates the socket and
+log directories, and loads the plist via launchctl. The socket is
+placed at `~/Library/Caches/touchid-agent/agent.sock` (matching
+yubikey-agent convention).
+
+To enable per-signing audit logging at install time:
+
+```bash
+touchid-agent -install-plist -audit-log "$HOME/Library/Logs/touchid-agent-audit.log"
+```
+
+The command is idempotent: if a socket-activation plist is already in
+place it's a no-op.
+
+### Build-from-source setup
 
 ```bash
 make install-launchd
 launchctl load ~/Library/LaunchAgents/touchid-agent.plist
 ```
 
-This generates a plist with correct paths for your system and writes
-it to `~/Library/LaunchAgents/touchid-agent.plist`.
+`make install-launchd` is the developer equivalent: it builds, signs,
+and installs the binary, then writes a plist with paths set for your
+system. Use `touchid-agent -install-plist` if the binary is already
+on `PATH`.
 
-The socket is placed at `~/Library/Caches/touchid-agent/agent.sock`
-(matching yubikey-agent convention).
-
-### Manual setup
-
-Copy the template and replace placeholders:
-
-```bash
-cp contrib/plist/touchid-agent.plist ~/Library/LaunchAgents/
-sed -i '' -e "s|__BINARY__|$(which touchid-agent)|g" \
-          -e "s|__HOME__|$HOME|g" \
-    ~/Library/LaunchAgents/touchid-agent.plist
-launchctl load ~/Library/LaunchAgents/touchid-agent.plist
-```
-
-### Migrating from the old plist (RunAtLoad + KeepAlive)
+### Migrating from the old `-l`-mode plist
 
 If you have an existing plist that uses `-l PATH` with `RunAtLoad` and
-`KeepAlive`, update it to use socket activation:
+`KeepAlive`, rewrite it in place:
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/touchid-agent.plist
-make install-launchd
-launchctl load ~/Library/LaunchAgents/touchid-agent.plist
+touchid-agent -migrate-plist
 ```
+
+This:
+
+- backs up the existing plist to
+  `~/Library/LaunchAgents/touchid-agent.plist.bak-pre-migrate-<timestamp>`,
+- rewrites it to socket activation while preserving `-audit-log`,
+  `-peer-check`, `-rate-limit`, `-allowed-callers`, and `-v` flags,
+- unloads the old plist and loads the new one,
+- and verifies the agent is reachable via `-status`.
+
+Use `-dry-run` to print the proposed plist without writing, or
+`-no-reload` to write the plist but skip the launchctl load.
 
 The socket path stays the same (`~/Library/Caches/touchid-agent/agent.sock`),
 so no changes are needed to `SSH_AUTH_SOCK` or `~/.ssh/config`.
+
+The command is idempotent: if the plist is already socket-activated,
+it's a no-op.
 
 The old `-l PATH` mode still works if you prefer an always-running
 agent. See "Traditional mode" below.
