@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Enterprise launchd template for touchid-agent.
+  Enterprise launchd template for touchid-agent (socket activation).
+
+  launchd creates and owns the socket. The agent starts on first
+  connection and exits after 10 minutes of inactivity.
 
   Compared to the base template in contrib/plist/, this enables:
     - peer-check:  verify calling binary against allowlist for no-touch keys
@@ -21,14 +24,23 @@
   <key>ProgramArguments</key>
   <array>
     <string>__BINARY__</string>
-    <string>-l</string>
-    <string>__HOME__/Library/Caches/touchid-agent/agent.sock</string>
+    <string>-launchd</string>
     <string>-peer-check</string>
     <string>-audit-log</string>
     <string>__HOME__/Library/Logs/touchid-agent-audit.jsonl</string>
   </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>Sockets</key>
+  <dict>
+    <key>Listeners</key>
+    <dict>
+      <key>SockFamily</key>
+      <string>Unix</string>
+      <key>SockPathName</key>
+      <string>__HOME__/Library/Caches/touchid-agent/agent.sock</string>
+      <key>SockPathMode</key>
+      <integer>384</integer>
+    </dict>
+  </dict>
   <key>ProcessType</key>
   <string>Background</string>
   <key>StandardErrorPath</key>

@@ -12,6 +12,7 @@
 _touchid-agent() {
     _arguments -s \
         '-l[Run the agent, listening on the UNIX socket at PATH]:socket path:_files' \
+        '-launchd[Run the agent using launchd socket activation]' \
         '-audit-log[Append a JSON-lines record per signing operation]:audit log path:_files' \
         '-peer-check[Verify peer binary against allowlist for no-touch keys]' \
         '-rate-limit[Max signing operations per key per minute (ceiling: 120)]:limit:' \
@@ -20,6 +21,8 @@ _touchid-agent() {
         '-no-touch[Do not require Touch ID for this key]' \
         '-post-hook[Run command after key creation]:command:_command_names' \
         '-list[List all managed keys]' \
+        '-json[Output list as JSON array]' \
+        '-status[Check if the agent at PATH is healthy]:socket path:_files' \
         '-delete[Delete the key with the given label]:label:' \
         '-delete-all[Delete all managed keys]' \
         '-v[Enable verbose debug logging]' \
