@@ -22,11 +22,20 @@ import (
 )
 
 type Agent struct {
-	storeMu sync.RWMutex
-	store   KeyStore
-	keyMu   sync.Map // label -> *sync.Mutex
-	audit   *AuditLogger
-	policy  *PeerPolicy
+	storeMu  sync.RWMutex
+	store    KeyStore
+	keyMu    sync.Map // label -> *sync.Mutex
+	audit    *AuditLogger
+	policy   *PeerPolicy
+	notifyFn func(string)
+}
+
+func (a *Agent) notify(message string) {
+	if a.notifyFn != nil {
+		a.notifyFn(message)
+		return
+	}
+	defaultNotify(message)
 }
 
 func (a *Agent) keyLock(label string) *sync.Mutex {
@@ -184,7 +193,7 @@ func (a *Agent) signFor(key ssh.PublicKey, data []byte, peer Peer) (*ssh.Signatu
 			timer.Stop()
 			return
 		}
-		showNotification(fmt.Sprintf("Waiting for Touch ID — key %q", matched.Label))
+		a.notify(fmt.Sprintf("Waiting for Touch ID — key %q", matched.Label))
 	}()
 
 	signer, err := ssh.NewSignerFromKey(matched)
@@ -208,7 +217,7 @@ func (a *Agent) signFor(key ssh.PublicKey, data []byte, peer Peer) (*ssh.Signatu
 		if peer.Path != "" {
 			peerDesc = filepath.Base(peer.Path)
 		}
-		go showNotification(fmt.Sprintf("Signed with key %q — %s", matched.Label, peerDesc))
+		go a.notify(fmt.Sprintf("Signed with key %q — %s", matched.Label, peerDesc))
 	}
 
 	return sig, nil
@@ -234,7 +243,7 @@ func escapeForAppleScript(s string) string {
 	return s
 }
 
-func showNotification(message string) {
+func defaultNotify(message string) {
 	message = escapeForAppleScript(message)
 	script := fmt.Sprintf(`display notification "%s" with title "touchid-agent"`, message)
 	exec.Command("osascript", "-e", script).Run()

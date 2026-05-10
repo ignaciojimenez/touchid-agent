@@ -107,7 +107,13 @@ launchctl load   "$HOME/Library/LaunchAgents/touchid-agent.plist"
 ls -l "$HOME/Library/Caches/touchid-agent/agent.sock"
 ```
 
-If launchd reports a non-zero exit code in `touchid-agent.log`, check:
+**Socket activation mode (`-launchd`).** launchd owns the socket, so
+stale sockets are not an issue. The socket persists across agent
+restarts and crashes. If the agent is not running, launchd starts it
+automatically on the next connection.
+
+**Traditional mode (`-l`).** If launchd reports a non-zero exit code
+in `touchid-agent.log`, check:
 
 - **`Failed to listen on UNIX socket`** — usually a stale socket file
   the agent did not clean up. The agent removes the file on startup, but

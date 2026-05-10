@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  touchid-agent launchd service template.
+  touchid-agent launchd service template (socket activation).
+
+  launchd creates and owns the socket. The agent starts on first
+  connection and exits after 10 minutes of inactivity. launchd
+  restarts it automatically on the next connection.
 
   This is a reference template. Prefer `make install-launchd` which
   generates a plist with correct paths for your system automatically.
@@ -15,11 +19,20 @@
   <key>ProgramArguments</key>
   <array>
     <string>__BINARY__</string>
-    <string>-l</string>
-    <string>__HOME__/Library/Caches/touchid-agent/agent.sock</string>
+    <string>-launchd</string>
   </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>Sockets</key>
+  <dict>
+    <key>Listeners</key>
+    <dict>
+      <key>SockFamily</key>
+      <string>Unix</string>
+      <key>SockPathName</key>
+      <string>__HOME__/Library/Caches/touchid-agent/agent.sock</string>
+      <key>SockPathMode</key>
+      <integer>384</integer>
+    </dict>
+  </dict>
   <key>ProcessType</key>
   <string>Background</string>
   <key>StandardErrorPath</key>
