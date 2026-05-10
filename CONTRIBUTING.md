@@ -86,8 +86,16 @@ contrib/plist/           launchd service template
 contrib/enterprise/      Enterprise deployment templates (setup, plist)
 ```
 
-See `docs/architecture.md` for design principles, `THREAT_MODEL.md` for
-the security model.
+See `docs/THREAT_MODEL.md` for the security model.
+
+### Architecture and Coding Strategy Decisions
+
+- **Storage layout**: Keys are persisted as SEP-wrapped data blobs in `~/.touchid-agent/keys/` with mode 0600.
+- **CryptoKit over Security framework**: By using CryptoKit we bypass the data-protection keychain and avoid needing entitlements, allowing a flat Developer-ID-signed Mach-O.
+- **Drop-in replacement**: We expose a standard SSH agent protocol socket (`SSH_AUTH_SOCK`) to work identically to `yubikey-agent`.
+- **Per-operation authentication**: Touch ID is forced per signing request (unless explicitly opted out) via `.biometryAny` access control.
+- **macOS only**: Tied strictly to Apple's Secure Enclave.
+- **Enterprise readiness**: Tracked as a separate roadmap in `docs/distribution-roadmap.md`. Do not mix enterprise deployment features into the core daily usage docs until completed.
 
 ## Testing
 
