@@ -20,3 +20,6 @@
       CLI binaries (stapler only supports `.app`/`.dmg`/`.pkg`). Could
       be revisited if Apple ships flat-binary stapling, or if the
       project ships a `.pkg` installer for managed deployments.
+- [ ] Add support for multi platform (Linux, Windows, etc?)
+- [ ] Add support for other key types or secrets? (For example secrets other than keys that could be used at runtime for other uses)
+
