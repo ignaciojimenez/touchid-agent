@@ -14,6 +14,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// Peer captures local socket peer credentials. Zero values mean the
+// credentials could not be determined; they are still safe to log
+// (omitempty drops them from the JSON record).
+type Peer struct {
+	PID  int
+	UID  uint32
+	Path string
+}
+
 // peerCreds returns the PID, UID, and binary path of the process on
 // the other end of a Unix-domain socket connection. Returns a zero
 // Peer if the connection is not a Unix socket or if the syscalls fail;
