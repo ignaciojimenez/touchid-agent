@@ -50,12 +50,13 @@ if [[ ! -f "$ROOT/touchid-agent" ]]; then
   exit 1
 fi
 if [[ -n "${MACOS_INSTALLER_SIGN_IDENTITY:-}" ]]; then
-  if codesign -dv "$ROOT/touchid-agent" 2>&1 | grep -q "adhoc"; then
-    echo "error: binary is ad-hoc signed; signed pkg requires a Developer ID Application binary" >&2
-    exit 1
-  fi
-  if ! codesign -dv "$ROOT/touchid-agent" 2>&1 | grep -q "Authority="; then
-    echo "error: binary appears unsigned; signed pkg requires a Developer ID Application binary" >&2
+  # `-dvv` (not `-dv`) is what surfaces the Authority chain; without
+  # the second `v`, ad-hoc and Developer ID binaries look identical.
+  CODESIGN_INFO="$(codesign -dvv "$ROOT/touchid-agent" 2>&1)"
+  if ! grep -q "Authority=Developer ID Application" <<<"$CODESIGN_INFO"; then
+    echo "error: binary is not signed with Developer ID Application; signed pkg requires it" >&2
+    echo "codesign -dvv output:" >&2
+    echo "$CODESIGN_INFO" >&2
     exit 1
   fi
 fi
