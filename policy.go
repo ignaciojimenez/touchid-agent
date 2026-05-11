@@ -18,12 +18,6 @@ var defaultAllowedCallers = []string{
 	"/usr/bin/ssh",
 	"/usr/bin/scp",
 	"/usr/bin/sftp",
-	"/opt/homebrew/bin/ssh",
-	"/opt/homebrew/bin/scp",
-	"/opt/homebrew/bin/sftp",
-	"/usr/local/bin/ssh",
-	"/usr/local/bin/scp",
-	"/usr/local/bin/sftp",
 }
 
 // PeerPolicy enforces caller verification and rate limiting on signing
@@ -51,7 +45,7 @@ func NewPeerPolicy(enforce bool, rateLimit int, extraCallers []string) *PeerPoli
 
 // IsAllowedCaller checks whether the given binary path matches an
 // entry in the allowlist. Symlinks in the allowlist are resolved at
-// check time so that Homebrew Cellar paths match correctly.
+// check time so configured symlinked paths match correctly.
 func (p *PeerPolicy) IsAllowedCaller(peerPath string) bool {
 	if p == nil || peerPath == "" {
 		return false
@@ -72,8 +66,7 @@ func (p *PeerPolicy) IsAllowedCaller(peerPath string) bool {
 }
 
 // CheckCaller returns an error if enforcement is enabled and the peer
-// binary is not in the allowlist. Touch-ID-gated keys should skip this
-// check since biometry already protects them.
+// binary is not in the allowlist.
 func (p *PeerPolicy) CheckCaller(peer Peer) error {
 	if p == nil || !p.enforce {
 		return nil

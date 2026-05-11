@@ -8,10 +8,27 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	publicKeyFromKeyData = publicKeyFromTestKeyData
+	os.Exit(m.Run())
+}
+
+func publicKeyFromTestKeyData(keyData []byte) (*ecdsa.PublicKey, error) {
+	if len(keyData) == 0 {
+		return nil, errors.New("test key data is empty")
+	}
+	x, y := elliptic.P256().ScalarBaseMult(keyData)
+	if x == nil || y == nil {
+		return nil, errors.New("invalid test key data")
+	}
+	return &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, nil
+}
 
 func writeTestKeyfile(t *testing.T, dir, label string, requireTouch bool) {
 	t.Helper()
@@ -125,6 +142,42 @@ func TestFilesystemKeyStore_ListRejectsLabelMismatch(t *testing.T) {
 	}
 	if len(keys) != 0 {
 		t.Errorf("label-mismatch file should be skipped, got %+v", keys)
+	}
+}
+
+func TestFilesystemKeyStore_ListRejectsPublicKeyMismatch(t *testing.T) {
+	dir := t.TempDir()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := keyfile{
+		Version:      keyfileVersion,
+		Label:        "tampered",
+		RequireTouch: false,
+		CreatedAt:    "2026-01-01T00:00:00Z",
+		KeyData:      base64.StdEncoding.EncodeToString(priv.D.Bytes()),
+		PublicKey:    base64.StdEncoding.EncodeToString(marshalECPublicKey(&other.PublicKey)),
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tampered.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &FilesystemKeyStore{Dir: dir}
+	keys, err := s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("public-key/key-data mismatch should be skipped, got %+v", keys)
 	}
 }
 

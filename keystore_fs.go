@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -192,10 +193,17 @@ func loadKeyfile(path string) (*Key, error) {
 	if err != nil {
 		return nil, err
 	}
+	derivedPub, err := publicKeyFromKeyData(keyData)
+	if err != nil {
+		return nil, fmt.Errorf("derive public_key from key_data: %w", err)
+	}
+	if !bytes.Equal(marshalECPublicKey(pub), marshalECPublicKey(derivedPub)) {
+		return nil, errors.New("public_key does not match key_data")
+	}
 	return &Key{
 		Label:        rec.Label,
 		RequireTouch: rec.RequireTouch,
-		publicKey:    pub,
+		publicKey:    derivedPub,
 		keyData:      keyData,
 	}, nil
 }
