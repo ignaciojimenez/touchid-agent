@@ -29,6 +29,23 @@ func TestPeerPolicy_IsAllowedCaller_DefaultPath(t *testing.T) {
 	}
 }
 
+func TestPeerPolicy_IsAllowedCaller_DefaultExcludesHomebrew(t *testing.T) {
+	p := NewPeerPolicy(true, 0, nil)
+	for _, path := range []string{"/opt/homebrew/bin/ssh", "/usr/local/bin/ssh"} {
+		if p.IsAllowedCaller(path) {
+			t.Errorf("%s should not be allowed by default", path)
+		}
+	}
+}
+
+func TestPeerPolicy_IsAllowedCaller_ExplicitHomebrew(t *testing.T) {
+	path := "/opt/homebrew/bin/ssh"
+	p := NewPeerPolicy(true, 0, []string{path})
+	if !p.IsAllowedCaller(path) {
+		t.Error("explicit Homebrew caller should be allowed")
+	}
+}
+
 func TestPeerPolicy_IsAllowedCaller_EmptyPath(t *testing.T) {
 	p := NewPeerPolicy(true, 0, nil)
 	if p.IsAllowedCaller("") {
