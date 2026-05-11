@@ -39,7 +39,7 @@ key itself.
 |---------|--------|
 | Private key extraction | **Mitigated.** The SEP-wrapped blob on disk is non-extractable; the actual private key never leaves SEP hardware. |
 | Silent signing (Touch ID-gated key) | **Mitigated.** Each signing operation requires biometric confirmation enforced by the SEP. |
-| Silent signing (no-touch key) | **Partially mitigated.** By default, a macOS notification is shown on every no-touch signing event. With `-peer-check`, only binaries in the allowlist (default: system and Homebrew `ssh`, `scp`, `sftp`) can trigger a signing request; unknown processes are rejected. With `-rate-limit`, signing frequency per key is capped (hard ceiling: 120/min). A sufficiently capable same-UID attacker who can inject into an allowed process or modify the launchd plist can still bypass these controls; Touch ID remains the only hardware-enforced guarantee. |
+| Silent signing (no-touch key) | **Partially mitigated.** By default, a macOS notification is shown on every signing event. With `-peer-check`, only binaries in the allowlist (default: system `ssh`, `scp`, `sftp`) can trigger a signing request; unknown processes are rejected. With `-rate-limit`, signing frequency per key is capped (hard ceiling: 120/min). A sufficiently capable same-UID attacker who can inject into an allowed process or modify the launchd plist can still bypass these controls; Touch ID remains the only hardware-enforced guarantee. |
 | Agent socket impersonation | **Partially mitigated.** Socket is 0600, directory 0700. Malware could manipulate `SSH_AUTH_SOCK`. |
 
 ### Root Compromise
@@ -64,7 +64,7 @@ to dump that contains key material.
 | Socket permissions | Created with mode 0600 (owner-only). |
 | Socket directory | Created with mode 0700. |
 | Connection timeouts | Idle connections are closed after 10 minutes to prevent FD exhaustion. |
-| Peer binary verification (`-peer-check`) | The binary path of the connecting process is resolved via `proc_pidpath(3)` and checked against an allowlist of known SSH clients. Unknown processes are rejected for no-touch key signing. Symlinks in the allowlist are resolved at check time so Homebrew Cellar paths match correctly. |
+| Peer binary verification (`-peer-check`) | The binary path of the connecting process is resolved via `proc_pidpath(3)` and checked against an allowlist of known SSH clients before signing. Unknown processes are rejected. Symlinks in the allowlist are resolved at check time so explicitly configured paths match correctly. |
 | Rate limiting (`-rate-limit N`) | Signing operations are limited per key per minute using a sliding window. The ceiling is hard-coded at 120/min and cannot be overridden by configuration. |
 | Default signing audit | When no `-audit-log` path is provided, signing events are emitted as JSON to stderr so they appear in the launchd log. |
 
@@ -149,7 +149,7 @@ environment.
 | Socket security | Owner-only permissions (0600), parent directory 0700. |
 | Signal handling | SIGTERM/SIGINT clean up the socket file. SIGHUP is handled without termination. |
 | Signing audit | Every signing operation is logged (JSON-lines) — to the file specified by `-audit-log`, or to stderr by default. Each record includes timestamp, key label, success/failure, peer PID, UID, and binary path. |
-| Caller verification | When `-peer-check` is enabled, the connecting process binary is validated against an allowlist before no-touch keys are used. |
+| Caller verification | When `-peer-check` is enabled, the connecting process binary is validated against an allowlist before signing. |
 | Rate limiting | When `-rate-limit` is set, per-key signing frequency is bounded by a sliding window with a hard-coded ceiling of 120/min. |
 
 ## Code Signing
@@ -195,9 +195,9 @@ expose an attestation chain for SE keys on macOS (iOS has
    the launchd journal); for structured retention use `-audit-log PATH`.
    Each record includes the peer process path for attribution.
 4. **Enable caller verification.** Add `-peer-check` to the launchd plist
-   arguments. No-touch key signing is then restricted to binaries in the
-   default allowlist (`/usr/bin/ssh`, `/opt/homebrew/bin/ssh`, etc.).
-   Add organisation-specific SSH clients via `-allowed-callers PATH`.
+   arguments. Signing is then restricted to binaries in the default
+   allowlist (`/usr/bin/ssh`, `/usr/bin/scp`, `/usr/bin/sftp`). Add
+   organisation-specific SSH clients via `-allowed-callers PATH`.
 5. **Enable rate limiting.** Add `-rate-limit 60` (or lower) for keys
    that are not expected to sign at high frequency. Use Touch ID-gated
    keys for anything where the rate limit alone is insufficient.

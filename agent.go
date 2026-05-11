@@ -169,12 +169,10 @@ func (a *Agent) signFor(key ssh.PublicKey, data []byte, peer Peer) (*ssh.Signatu
 
 	debugf("Sign: matched key %s (touch=%v, peer=%s pid=%d)", matched.Label, matched.RequireTouch, peer.Path, peer.PID)
 
-	if !matched.RequireTouch {
-		if err := a.policy.CheckCaller(peer); err != nil {
-			wrapped := fmt.Errorf("rejected signing with key %s: %w", matched.Label, err)
-			a.audit.Sign(matched.Label, false, wrapped, peer)
-			return nil, wrapped
-		}
+	if err := a.policy.CheckCaller(peer); err != nil {
+		wrapped := fmt.Errorf("rejected signing with key %s: %w", matched.Label, err)
+		a.audit.Sign(matched.Label, false, wrapped, peer)
+		return nil, wrapped
 	}
 
 	if err := a.policy.CheckRate(matched.Label); err != nil {
@@ -212,13 +210,11 @@ func (a *Agent) signFor(key ssh.PublicKey, data []byte, peer Peer) (*ssh.Signatu
 	debugf("Sign: success for key %s", matched.Label)
 	a.audit.Sign(matched.Label, true, nil, peer)
 
-	if !matched.RequireTouch {
-		peerDesc := fmt.Sprintf("pid %d", peer.PID)
-		if peer.Path != "" {
-			peerDesc = filepath.Base(peer.Path)
-		}
-		go a.notify(fmt.Sprintf("Signed with key %q — %s", matched.Label, peerDesc))
+	peerDesc := fmt.Sprintf("pid %d", peer.PID)
+	if peer.Path != "" {
+		peerDesc = filepath.Base(peer.Path)
 	}
+	go a.notify(fmt.Sprintf("Signed with key %q — %s", matched.Label, peerDesc))
 
 	return sig, nil
 }
@@ -229,7 +225,7 @@ func (a *Agent) Extension(extensionType string, contents []byte) ([]byte, error)
 
 var ErrOperationUnsupported = errors.New("operation unsupported")
 
-func (a *Agent) Add(key agent.AddedKey) error  { return ErrOperationUnsupported }
+func (a *Agent) Add(key agent.AddedKey) error   { return ErrOperationUnsupported }
 func (a *Agent) Remove(key ssh.PublicKey) error { return ErrOperationUnsupported }
 func (a *Agent) RemoveAll() error               { return ErrOperationUnsupported }
 func (a *Agent) Lock(passphrase []byte) error   { return ErrOperationUnsupported }

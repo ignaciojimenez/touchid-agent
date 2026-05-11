@@ -31,6 +31,8 @@ type Key struct {
 	signFn       func(label string, digest []byte) ([]byte, error)
 }
 
+var publicKeyFromKeyData = sePublicKey
+
 func (k *Key) Public() crypto.PublicKey { return k.publicKey }
 
 func (k *Key) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
@@ -97,6 +99,38 @@ func generateSEKey(requireTouch bool) (keyData []byte, pub *ecdsa.PublicKey, err
 		return nil, nil, fmt.Errorf("parse public key: %w", err)
 	}
 	return keyData, pub, nil
+}
+
+func sePublicKey(keyData []byte) (*ecdsa.PublicKey, error) {
+	if len(keyData) == 0 {
+		return nil, errors.New("key data is empty")
+	}
+
+	var (
+		pubOut *C.uint8_t
+		pubLen C.size_t
+		errStr *C.char
+	)
+	rc := C.se_public_key(
+		(*C.uint8_t)(unsafe.Pointer(&keyData[0])), C.size_t(len(keyData)),
+		&pubOut, &pubLen, &errStr,
+	)
+	if rc != 0 {
+		msg := "unknown Secure Enclave error"
+		if errStr != nil {
+			msg = C.GoString(errStr)
+			C.free(unsafe.Pointer(errStr))
+		}
+		return nil, errors.New(msg)
+	}
+	defer C.free(unsafe.Pointer(pubOut))
+
+	pubRaw := C.GoBytes(unsafe.Pointer(pubOut), C.int(pubLen))
+	pub, err := parseECPublicKey(pubRaw)
+	if err != nil {
+		return nil, fmt.Errorf("parse public key: %w", err)
+	}
+	return pub, nil
 }
 
 func parseECPublicKey(raw []byte) (*ecdsa.PublicKey, error) {
