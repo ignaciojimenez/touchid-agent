@@ -38,7 +38,7 @@ up cold.
 | # | Track | Audience | Status |
 |---|---|---|---|
 | 1 | Self-healing brew/individual upgrade | Individuals via brew | **Done (v0.3.0)** |
-| 2 | Signed `.pkg` for fleet deployment | IT pushing via MDM/Munki/Jamf | **Partial (v0.4.0)** — pkg + bootstrap LaunchAgent shipped; configuration profile (§3) remains |
+| 2 | Signed `.pkg` for fleet deployment | IT pushing via MDM/Munki/Jamf | **Partial (v0.4.0)** — pkg + bootstrap LaunchAgent shipped; §3 (config profile + managed prefs) implemented, pending release; §4 (deployment.md) remains |
 | 3 | Org-scale enrollment + inventory | Org operating at scale | Discovery |
 
 ---
@@ -94,11 +94,18 @@ sync merged directly to tap `main` on 2026-05-10.
   invokes `touchid-agent -ensure-user-plist` on each Aqua session,
   which idempotently installs the per-user socket-activated plist.
 
-**Remaining in Track #2:**
+**Implemented (pending release):**
 
 - §3 Configuration profile (`.mobileconfig`) + Managed Preferences
-  read path in the agent. Without this, IT can deploy but cannot
-  enforce flags; SOC 2 reviewers will flag the gap.
+  read path in the agent. `managed_darwin.go` reads four policy keys
+  (`audit_log_path`, `peer_check`, `rate_limit`, `allowed_callers`)
+  via `CFPreferencesCopyAppValue` against bundle ID
+  `com.ignaciojimenez.touchid-agent`. Managed values override CLI
+  flags unconditionally. `scripts/build-mobileconfig.sh` generates a
+  signed profile; `release.yml` attaches it to every GitHub release.
+
+**Remaining in Track #2:**
+
 - §4 `docs/deployment.md` — write after the first Munki pilot run so
   the doc reflects real importer commands rather than guesses.
 

@@ -2,10 +2,11 @@
 
 ## Unsorted
 
-- [ ] Distribution roadmap Track #2 §3 — configuration profile
+- [x] Distribution roadmap Track #2 §3 — configuration profile
       (`.mobileconfig`) + Managed Preferences read path in the agent.
-      Last remaining piece for the Munki pilot. See
-      `docs/distribution-roadmap.md`.
+      Shipped: `managed_darwin.go` reads via `CFPreferencesCopyAppValue`;
+      `scripts/build-mobileconfig.sh` generates signed profile; wired
+      into `release.yml`.
 - [ ] Distribution roadmap Track #2 §4 — `docs/deployment.md` after
       the first Munki pilot run.
 - [ ] Distribution roadmap Track #3 — enrollment + inventory. v1

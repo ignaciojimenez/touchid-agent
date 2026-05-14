@@ -181,6 +181,12 @@ release: clean-dist universal sign package notarize
 pkg:
 	@./scripts/build-pkg.sh $(VERSION)
 
+# Build a signed .mobileconfig configuration profile for Managed
+# Preferences (see docs/distribution-roadmap.md Track #2 §3). Signs
+# only when MACOS_INSTALLER_SIGN_IDENTITY is set.
+mobileconfig:
+	@./scripts/build-mobileconfig.sh $(VERSION)
+
 # Render a release-notes draft to stdout from git log since the previous tag.
 release-notes:
 	@./scripts/release-notes.sh $(VERSION)

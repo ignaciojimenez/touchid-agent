@@ -97,6 +97,11 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: make pkg VERSION="$VERSION"
 
+      - name: Build .mobileconfig profile
+        env:
+          MACOS_INSTALLER_SIGN_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGN_IDENTITY }}
+        run: make mobileconfig VERSION="$VERSION"
+
       - name: Upload dry-run artifacts
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
@@ -117,6 +122,7 @@ jobs:
           set -euo pipefail
           RELEASE_NAME="touchid-agent-${VERSION}-darwin-universal"
           PKG_NAME="touchid-agent-${VERSION}.pkg"
+          MOBILECONFIG_NAME="touchid-agent-${VERSION}.mobileconfig"
           gh release create "$VERSION" \
             --title "touchid-agent ${VERSION}" \
             --notes-file dist/RELEASE_NOTES.md \
@@ -125,7 +131,8 @@ jobs:
             "dist/${RELEASE_NAME}.zip" \
             "dist/${RELEASE_NAME}.zip.sha256" \
             "dist/${PKG_NAME}" \
-            "dist/${PKG_NAME}.sha256"
+            "dist/${PKG_NAME}.sha256" \
+            "dist/${MOBILECONFIG_NAME}"
 
       - name: Clean up keychain
         if: always()

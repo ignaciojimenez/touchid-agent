@@ -495,6 +495,8 @@ func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string
 		log.Println("Consider using the launchd service.")
 	}
 
+	applyManagedOverrides(&auditLogPath, &peerCheck, &rateLimit, &allowedCallersFile)
+
 	var audit *AuditLogger
 	if auditLogPath != "" {
 		var err error
