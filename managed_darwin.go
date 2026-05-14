@@ -33,6 +33,14 @@ static Boolean cfPrefAppSync(const char *appID) {
 	CFRelease(cfApp);
 	return ok;
 }
+
+// cfIsNull lets Go check for NULL on the C side. Comparing the Go-side
+// CFPropertyListRef via uintptr(unsafe.Pointer(val)) tripped go vet's
+// "possible misuse of unsafe.Pointer" rule; doing the check in C keeps
+// the call sites idiomatic and GC-safe.
+static int cfIsNull(CFPropertyListRef ref) {
+	return ref == NULL;
+}
 */
 import "C"
 
@@ -40,6 +48,12 @@ import (
 	"log"
 	"unsafe"
 )
+
+// cfRefIsNull centralizes the NULL check for CFPropertyListRef values
+// returned by the cgo bridge. See the cfIsNull C helper above.
+func cfRefIsNull(ref C.CFPropertyListRef) bool {
+	return C.cfIsNull(ref) != 0
+}
 
 var managedBundleID = "com.ignaciojimenez.touchid-agent"
 
@@ -70,7 +84,7 @@ func cfPrefString(key string) (string, bool) {
 	defer C.free(unsafe.Pointer(cApp))
 
 	val := C.cfPrefCopyAppValue(cKey, cApp)
-	if uintptr(unsafe.Pointer(val)) == 0 {
+	if cfRefIsNull(val) {
 		return "", false
 	}
 	defer C.CFRelease(val)
@@ -100,7 +114,7 @@ func cfPrefBool(key string) (bool, bool) {
 	defer C.free(unsafe.Pointer(cApp))
 
 	val := C.cfPrefCopyAppValue(cKey, cApp)
-	if uintptr(unsafe.Pointer(val)) == 0 {
+	if cfRefIsNull(val) {
 		return false, false
 	}
 	defer C.CFRelease(val)
@@ -120,7 +134,7 @@ func cfPrefInt(key string) (int, bool) {
 	defer C.free(unsafe.Pointer(cApp))
 
 	val := C.cfPrefCopyAppValue(cKey, cApp)
-	if uintptr(unsafe.Pointer(val)) == 0 {
+	if cfRefIsNull(val) {
 		return 0, false
 	}
 	defer C.CFRelease(val)

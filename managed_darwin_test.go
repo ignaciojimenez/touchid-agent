@@ -47,11 +47,6 @@ func defaultsDelete(t *testing.T, domain, key string) {
 	exec.Command("defaults", "delete", domain, key).Run() // ignore error on missing key
 }
 
-func defaultsDeleteDomain(t *testing.T, domain string) {
-	t.Helper()
-	exec.Command("defaults", "delete", domain).Run()
-}
-
 func intToStr(n int) string {
 	buf := make([]byte, 0, 12)
 	if n < 0 {
