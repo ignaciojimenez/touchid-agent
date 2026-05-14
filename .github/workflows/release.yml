@@ -102,6 +102,40 @@ jobs:
           MACOS_INSTALLER_SIGN_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGN_IDENTITY }}
         run: make mobileconfig VERSION="$VERSION"
 
+      # Catch profile-schema regressions before the artifact ships to
+      # the fleet: verify the CMS signature validates and the decoded
+      # payload carries all four managed keys under our bundle ID.
+      - name: Verify .mobileconfig payload
+        run: |
+          set -euo pipefail
+          PROFILE="dist/touchid-agent-${VERSION}.mobileconfig"
+          BUNDLE_ID="com.ignaciojimenez.touchid-agent"
+
+          if head -c 5 "$PROFILE" | grep -q '<?xml'; then
+            echo "::error::profile is unsigned XML (signing failed)"
+            exit 1
+          fi
+
+          DECODED=$(security cms -D -i "$PROFILE")
+          if [[ -z "$DECODED" ]]; then
+            echo "::error::CMS signature did not validate"
+            exit 1
+          fi
+
+          for key in audit_log_path peer_check rate_limit allowed_callers; do
+            if ! grep -qF "<key>$key</key>" <<<"$DECODED"; then
+              echo "::error::payload missing managed key: $key"
+              exit 1
+            fi
+          done
+
+          if ! grep -qF "<key>$BUNDLE_ID</key>" <<<"$DECODED"; then
+            echo "::error::payload does not target bundle ID $BUNDLE_ID"
+            exit 1
+          fi
+
+          echo "mobileconfig payload OK"
+
       - name: Upload dry-run artifacts
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4

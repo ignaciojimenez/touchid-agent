@@ -84,6 +84,11 @@ cat > "$UNSIGNED" <<PLIST
                 <true/>
                 <key>rate_limit</key>
                 <integer>30</integer>
+                <!-- allowed_callers ships empty: the agent skips empty
+                     paths, so IT can point this at a fleet-specific
+                     file by editing the profile before MDM deployment. -->
+                <key>allowed_callers</key>
+                <string></string>
               </dict>
             </dict>
           </array>
