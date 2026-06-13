@@ -106,6 +106,26 @@ func TestAgent_Sign_MatchingKey(t *testing.T) {
 	}
 }
 
+func TestAgent_Sign_PeerCheckRejectsTouchRequiredKey(t *testing.T) {
+	a, store := newTestAgent(t)
+	a.policy = NewPeerPolicy(true, 0, nil)
+	key, _ := store.Generate("touch-key", true)
+
+	sshPub, err := ssh.NewPublicKey(key.publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := sha256.Sum256([]byte("test data"))
+	_, err = a.signFor(sshPub, data[:], Peer{PID: 7, Path: "/tmp/evil-ssh"})
+	if err == nil {
+		t.Fatal("expected peer-check rejection for touch-required key")
+	}
+	if !strings.Contains(err.Error(), "not in allowlist") {
+		t.Fatalf("error = %v, want allowlist rejection", err)
+	}
+}
+
 func TestAgent_Sign_NoMatchingKey(t *testing.T) {
 	a, _ := newTestAgent(t)
 
@@ -306,15 +326,11 @@ func TestAgent_Sign_NotifiesOnNoTouchKey(t *testing.T) {
 	}
 }
 
-func TestAgent_Sign_NoNotifyOnTouchKey(t *testing.T) {
-	var mu sync.Mutex
-	var messages []string
-
+func TestAgent_Sign_NotifiesOnTouchKey(t *testing.T) {
 	a, store := newTestAgent(t)
+	messages := make(chan string, 1)
 	a.notifyFn = func(msg string) {
-		mu.Lock()
-		messages = append(messages, msg)
-		mu.Unlock()
+		messages <- msg
 	}
 	key, _ := store.Generate("touch-key", true)
 	sshPub, _ := ssh.NewPublicKey(key.publicKey)
@@ -325,13 +341,12 @@ func TestAgent_Sign_NoNotifyOnTouchKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	for _, m := range messages {
-		if strings.Contains(m, "Signed with") {
-			t.Errorf("touch-required key should not trigger 'Signed with' notification, got %q", m)
+	select {
+	case msg := <-messages:
+		if !strings.Contains(msg, "touch-key") {
+			t.Fatalf("notification = %q, want key label", msg)
 		}
+	case <-time.After(time.Second):
+		t.Fatal("expected signing notification")
 	}
 }

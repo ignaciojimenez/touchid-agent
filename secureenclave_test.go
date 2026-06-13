@@ -93,3 +93,10 @@ func TestParseECPublicKey_OffCurve(t *testing.T) {
 		t.Error("should reject off-curve point")
 	}
 }
+
+func TestSEPublicKeyRejectsEmptyKeyData(t *testing.T) {
+	_, err := sePublicKey(nil)
+	if err == nil {
+		t.Fatal("expected error for empty key data")
+	}
+}

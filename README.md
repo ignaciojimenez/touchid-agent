@@ -9,7 +9,7 @@ same protocol, same key shape (ECDSA P-256), no dongle.
 * **Hardware non-exportability.** Keys are generated inside the SEP and cannot be extracted. No file to steal, no memory to dump.
 * **Fleet-deployable.** Signed, notarized `.pkg` for MDM (Munki / Jamf / Kandji), with a configuration profile that pins agent flags via Managed Preferences.
 * **Auditable.** Every signing event emits a JSON record with timestamp, key label, peer PID/UID, and binary path — built to ship to a SIEM.
-* **Defense-in-depth.** Per-binary caller allowlist (`-peer-check`) gates no-touch keys to known SSH clients. Per-key rate limiting bounds blast radius if an allowed caller is compromised.
+* **Defense-in-depth.** Per-binary caller allowlist (`-peer-check`) gates signing requests to known SSH clients. Per-key rate limiting bounds blast radius if an allowed caller is compromised.
 * **Hookable provisioning.** Post-create hooks register new keys with GitHub, an LDAP keyserver, or any HTTP endpoint — pubkey distribution without paste-and-pray. See [docs/hooks.md](docs/hooks.md).
 
 ## Installation
