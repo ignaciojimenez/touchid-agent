@@ -54,7 +54,7 @@ What landed:
 - `touchid-agent -install-plist [-audit-log PATH] [-no-reload]` —
   fresh install: writes a socket-activation plist and loads it.
 - `touchid-agent -migrate-plist [-dry-run] [-no-reload]` — upgrade in
-  place; preserves `-audit-log`, `-peer-check`, `-rate-limit`,
+  place; preserves `-audit-log`, `-no-peer-check`, `-rate-limit`,
   `-allowed-callers`, `-v`.
 - `cmdStatus` warns when a stale `-l`-mode `touchid-agent` process is
   still running on the same socket.

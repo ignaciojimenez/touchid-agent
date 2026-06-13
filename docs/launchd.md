@@ -62,7 +62,7 @@ This:
 - backs up the existing plist to
   `~/Library/LaunchAgents/touchid-agent.plist.bak-pre-migrate-<timestamp>`,
 - rewrites it to socket activation while preserving `-audit-log`,
-  `-peer-check`, `-rate-limit`, `-allowed-callers`, and `-v` flags,
+  `-no-peer-check`, `-rate-limit`, `-allowed-callers`, and `-v` flags,
 - unloads the old plist and loads the new one,
 - and verifies the agent is reachable via `-status`.
 

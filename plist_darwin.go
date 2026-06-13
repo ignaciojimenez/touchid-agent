@@ -19,7 +19,7 @@ import (
 // ~/Library/LaunchAgents/touchid-agent.plist and (re)load it via
 // launchctl. -install-plist is for new installs; -migrate-plist
 // rewrites an existing -l-mode plist while preserving extra flags
-// (-audit-log, -peer-check, -rate-limit, -allowed-callers).
+// (-audit-log, -no-peer-check, -rate-limit, -allowed-callers).
 
 const (
 	plistLabel        = "touchid-agent"
@@ -36,7 +36,8 @@ const (
 // socket activation (-l) or are not agent flags.
 var preservedAgentFlags = map[string]bool{
 	"-audit-log":       true,
-	"-peer-check":      true,
+	"-no-peer-check":   true,
+	"-peer-check":      true, // deprecated no-op; preserved so old plists migrate cleanly
 	"-rate-limit":      true,
 	"-allowed-callers": true,
 	"-v":               true,

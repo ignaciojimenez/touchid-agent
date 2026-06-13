@@ -29,6 +29,16 @@ func TestPeerPolicy_IsAllowedCaller_DefaultPath(t *testing.T) {
 	}
 }
 
+// git SSH commit/tag signing connects to the agent as ssh-keygen, so it
+// must be in the default allowlist or signing breaks under default-on
+// peer verification.
+func TestPeerPolicy_IsAllowedCaller_DefaultIncludesSSHKeygen(t *testing.T) {
+	p := NewPeerPolicy(true, 0, nil)
+	if !p.IsAllowedCaller("/usr/bin/ssh-keygen") {
+		t.Error("/usr/bin/ssh-keygen should be allowed by default (git signing)")
+	}
+}
+
 func TestPeerPolicy_IsAllowedCaller_DefaultExcludesHomebrew(t *testing.T) {
 	p := NewPeerPolicy(true, 0, nil)
 	for _, path := range []string{"/opt/homebrew/bin/ssh", "/usr/local/bin/ssh"} {
