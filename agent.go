@@ -175,6 +175,16 @@ func (a *Agent) signFor(key ssh.PublicKey, data []byte, peer Peer) (*ssh.Signatu
 		return nil, wrapped
 	}
 
+	// Per-key caller binding: when a key restricts its callers, the peer must
+	// also satisfy one of the key's own rules (in addition to the global
+	// policy above).
+	if len(matched.CallerRules) > 0 && !matchesAnyRule(matched.CallerRules, peer) {
+		wrapped := fmt.Errorf("rejected signing with key %s: caller not permitted for this key: %s (pid %d, signing_id=%q team_id=%q)",
+			matched.Label, peer.Path, peer.PID, peer.SigningID, peer.TeamID)
+		a.audit.Sign(matched.Label, false, wrapped, peer)
+		return nil, wrapped
+	}
+
 	if err := a.policy.CheckRate(matched.Label); err != nil {
 		wrapped := fmt.Errorf("rejected signing with key %s: %w", matched.Label, err)
 		a.audit.Sign(matched.Label, false, wrapped, peer)

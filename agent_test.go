@@ -84,6 +84,29 @@ func TestAgent_Signers(t *testing.T) {
 	}
 }
 
+func TestAgent_Sign_PerKeyCallerBinding(t *testing.T) {
+	a, store := newTestAgent(t)
+	a.policy = NewPeerPolicy(false, 0, nil) // global allows all; isolate the per-key rule
+	key, _ := store.Generate("bound", false, CallerRule{ruleTeamID, "ABCDE12345"})
+	sshPub, err := ssh.NewPublicKey(key.publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := sha256.Sum256([]byte("test data"))
+
+	// A caller that does not satisfy the key's own rule is rejected even
+	// though the global policy allows everything here.
+	_, err = a.signFor(sshPub, data[:], Peer{PID: 1, Path: "/x", TeamID: "OTHER", AppleAnchored: true})
+	if err == nil || !strings.Contains(err.Error(), "not permitted for this key") {
+		t.Fatalf("expected per-key rejection, got %v", err)
+	}
+
+	// A caller that satisfies the key's rule is allowed.
+	if _, err := a.signFor(sshPub, data[:], Peer{PID: 2, Path: "/y", TeamID: "ABCDE12345", AppleAnchored: true}); err != nil {
+		t.Fatalf("matching caller should be allowed, got %v", err)
+	}
+}
+
 func TestAgent_Sign_MatchingKey(t *testing.T) {
 	a, store := newTestAgent(t)
 	key, _ := store.Generate("test", false)

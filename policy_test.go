@@ -199,6 +199,37 @@ func TestParseCallerRule(t *testing.T) {
 	}
 }
 
+func TestCallerRule_StringRoundTrip(t *testing.T) {
+	for _, r := range []CallerRule{
+		{ruleTeamID, "ABCDE12345"},
+		{ruleSigningID, "org.example.ssh"},
+		{ruleCDHash, "deadbeef"},
+		{rulePath, "/opt/homebrew/bin/ssh"},
+	} {
+		got, err := parseCallerRule(r.String())
+		if err != nil || got != r {
+			t.Errorf("round trip %+v -> %q -> %+v (err %v)", r, r.String(), got, err)
+		}
+	}
+}
+
+func TestParseKeyCallers(t *testing.T) {
+	rules, err := parseKeyCallers("team-id:ABCDE12345, signing-id:org.example.ssh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []CallerRule{{ruleTeamID, "ABCDE12345"}, {ruleSigningID, "org.example.ssh"}}
+	if len(rules) != 2 || rules[0] != want[0] || rules[1] != want[1] {
+		t.Errorf("parseKeyCallers = %+v, want %+v", rules, want)
+	}
+	if r, err := parseKeyCallers(""); err != nil || r != nil {
+		t.Errorf("empty spec should yield nil,nil; got %+v,%v", r, err)
+	}
+	if _, err := parseKeyCallers("bogus"); err == nil {
+		t.Error("invalid rule should error")
+	}
+}
+
 func TestParseCallerRule_Errors(t *testing.T) {
 	for _, line := range []string{"bogus", "relative/path", "team-id:", "unknown:value"} {
 		if _, err := parseCallerRule(line); err == nil {

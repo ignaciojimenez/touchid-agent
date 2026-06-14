@@ -19,7 +19,7 @@ import (
 
 type KeyStore interface {
 	List() ([]*Key, error)
-	Generate(label string, requireTouch bool) (*Key, error)
+	Generate(label string, requireTouch bool, callerRules ...CallerRule) (*Key, error)
 	Delete(label string) error
 	DeleteAll() error
 }
@@ -27,12 +27,13 @@ type KeyStore interface {
 const keyfileVersion = 1
 
 type keyfile struct {
-	Version      int    `json:"version"`
-	Label        string `json:"label"`
-	RequireTouch bool   `json:"require_touch"`
-	CreatedAt    string `json:"created_at"`
-	KeyData      string `json:"key_data"`
-	PublicKey    string `json:"public_key"`
+	Version      int      `json:"version"`
+	Label        string   `json:"label"`
+	RequireTouch bool     `json:"require_touch"`
+	CreatedAt    string   `json:"created_at"`
+	KeyData      string   `json:"key_data"`
+	PublicKey    string   `json:"public_key"`
+	CallerRules  []string `json:"caller_rules,omitempty"`
 }
 
 type FilesystemKeyStore struct {
@@ -60,7 +61,7 @@ func (s *FilesystemKeyStore) path(label string) string {
 	return filepath.Join(s.Dir, label+".json")
 }
 
-func (s *FilesystemKeyStore) Generate(label string, requireTouch bool) (*Key, error) {
+func (s *FilesystemKeyStore) Generate(label string, requireTouch bool, callerRules ...CallerRule) (*Key, error) {
 	if err := validateLabel(label); err != nil {
 		return nil, err
 	}
@@ -76,6 +77,11 @@ func (s *FilesystemKeyStore) Generate(label string, requireTouch bool) (*Key, er
 		return nil, err
 	}
 
+	ruleStrs := make([]string, len(callerRules))
+	for i, r := range callerRules {
+		ruleStrs[i] = r.String()
+	}
+
 	rec := keyfile{
 		Version:      keyfileVersion,
 		Label:        label,
@@ -83,6 +89,7 @@ func (s *FilesystemKeyStore) Generate(label string, requireTouch bool) (*Key, er
 		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 		KeyData:      base64.StdEncoding.EncodeToString(keyData),
 		PublicKey:    base64.StdEncoding.EncodeToString(marshalECPublicKey(pub)),
+		CallerRules:  ruleStrs,
 	}
 	if err := writeKeyfile(path, &rec); err != nil {
 		return nil, err
@@ -91,6 +98,7 @@ func (s *FilesystemKeyStore) Generate(label string, requireTouch bool) (*Key, er
 	return &Key{
 		Label:        label,
 		RequireTouch: requireTouch,
+		CallerRules:  callerRules,
 		publicKey:    pub,
 		keyData:      keyData,
 	}, nil
@@ -200,9 +208,18 @@ func loadKeyfile(path string) (*Key, error) {
 	if !bytes.Equal(marshalECPublicKey(pub), marshalECPublicKey(derivedPub)) {
 		return nil, errors.New("public_key does not match key_data")
 	}
+	var callerRules []CallerRule
+	for _, s := range rec.CallerRules {
+		r, err := parseCallerRule(s)
+		if err != nil {
+			return nil, fmt.Errorf("caller rule %q: %w", s, err)
+		}
+		callerRules = append(callerRules, r)
+	}
 	return &Key{
 		Label:        rec.Label,
 		RequireTouch: rec.RequireTouch,
+		CallerRules:  callerRules,
 		publicKey:    derivedPub,
 		keyData:      keyData,
 	}, nil

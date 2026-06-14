@@ -58,8 +58,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        Run the agent using launchd socket activation.\n")
 		fmt.Fprintf(os.Stderr, "        The socket is created and owned by launchd (see the plist Sockets key).\n")
 		fmt.Fprintf(os.Stderr, "        The agent exits after %v of inactivity; launchd restarts it on demand.\n\n", launchdIdleTimeout)
-		fmt.Fprintf(os.Stderr, "  touchid-agent -create NAME [-no-touch] [-post-hook CMD]\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -create NAME [-no-touch] [-post-hook CMD] [-key-callers RULES]\n")
 		fmt.Fprintf(os.Stderr, "        Create a new SSH key in the Secure Enclave.\n")
+		fmt.Fprintf(os.Stderr, "        Use -key-callers to bind the key to specific callers\n")
+		fmt.Fprintf(os.Stderr, "        (comma-separated team-id:/signing-id:/cdhash:/path: rules).\n")
 		fmt.Fprintf(os.Stderr, "        By default, Touch ID is required for every signing operation.\n")
 		fmt.Fprintf(os.Stderr, "        Use -no-touch to allow signing without biometric confirmation.\n")
 		fmt.Fprintf(os.Stderr, "        Use -post-hook to run an executable after key creation.\n")
@@ -108,6 +110,7 @@ func main() {
 	createKey := flag.String("create", "", "create a new key with the given label")
 	noTouch := flag.Bool("no-touch", false, "create: do not require Touch ID for this key")
 	postHook := flag.String("post-hook", "", "create: run command after key creation")
+	keyCallers := flag.String("key-callers", "", "create: bind this key to specific callers (comma-separated team-id:/signing-id:/cdhash:/path: rules)")
 	listKeys := flag.Bool("list", false, "list all managed keys")
 	listJSON := flag.Bool("json", false, "list: output as JSON array")
 	statusPath := flag.String("status", "", "check agent health at the given socket path")
@@ -173,7 +176,7 @@ func main() {
 
 	switch {
 	case *createKey != "":
-		cmdCreate(store, *createKey, !*noTouch, *postHook)
+		cmdCreate(store, *createKey, !*noTouch, *postHook, *keyCallers)
 	case *listKeys:
 		cmdList(store, *listJSON)
 	case *statusPath != "":
@@ -229,12 +232,17 @@ func validateLabel(label string) error {
 	return nil
 }
 
-func cmdCreate(store KeyStore, label string, requireTouch bool, postHookCmd string) {
+func cmdCreate(store KeyStore, label string, requireTouch bool, postHookCmd, keyCallers string) {
 	if err := validateLabel(label); err != nil {
 		log.Fatalf("Error: %v\n", err)
 	}
 
-	key, err := store.Generate(label, requireTouch)
+	callerRules, err := parseKeyCallers(keyCallers)
+	if err != nil {
+		log.Fatalf("Error: -key-callers: %v\n", err)
+	}
+
+	key, err := store.Generate(label, requireTouch, callerRules...)
 	if err != nil {
 		log.Fatalf("Failed to generate key: %v\n", err)
 	}
@@ -267,6 +275,28 @@ func cmdCreate(store KeyStore, label string, requireTouch bool, postHookCmd stri
 		}
 		fmt.Println("Hook completed successfully.")
 	}
+}
+
+// parseKeyCallers parses a comma-separated list of caller rules used to bind
+// a key to specific callers at creation time (empty == no per-key binding).
+func parseKeyCallers(spec string) ([]CallerRule, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return nil, nil
+	}
+	var rules []CallerRule
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		r, err := parseCallerRule(part)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, r)
+	}
+	return rules, nil
 }
 
 func selfTestKey(key *Key, requireTouch bool) error {

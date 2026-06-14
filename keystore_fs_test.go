@@ -55,6 +55,42 @@ func writeTestKeyfile(t *testing.T, dir, label string, requireTouch bool) {
 	}
 }
 
+func TestFilesystemKeyStore_LoadsCallerRules(t *testing.T) {
+	dir := t.TempDir()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := keyfile{
+		Version:      keyfileVersion,
+		Label:        "bound",
+		RequireTouch: true,
+		CreatedAt:    "2026-01-01T00:00:00Z",
+		KeyData:      base64.StdEncoding.EncodeToString(priv.D.Bytes()),
+		PublicKey:    base64.StdEncoding.EncodeToString(marshalECPublicKey(&priv.PublicKey)),
+		CallerRules:  []string{"team-id:ABCDE12345", "path:/opt/homebrew/bin/ssh"},
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bound.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	keys, err := (&FilesystemKeyStore{Dir: dir}).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("want 1 key, got %d", len(keys))
+	}
+	want := []CallerRule{{ruleTeamID, "ABCDE12345"}, {rulePath, "/opt/homebrew/bin/ssh"}}
+	if len(keys[0].CallerRules) != len(want) || keys[0].CallerRules[0] != want[0] || keys[0].CallerRules[1] != want[1] {
+		t.Errorf("CallerRules = %+v, want %+v", keys[0].CallerRules, want)
+	}
+}
+
 func TestFilesystemKeyStore_ListEmpty(t *testing.T) {
 	s := &FilesystemKeyStore{Dir: t.TempDir()}
 	keys, err := s.List()

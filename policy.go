@@ -75,6 +75,33 @@ func (r CallerRule) matches(peer Peer) bool {
 	return false
 }
 
+// String serializes a rule back to its -allowed-callers / keyfile form.
+func (r CallerRule) String() string {
+	switch r.Kind {
+	case ruleTeamID:
+		return "team-id:" + r.Value
+	case ruleSigningID:
+		return "signing-id:" + r.Value
+	case ruleCDHash:
+		return "cdhash:" + r.Value
+	case rulePath:
+		return "path:" + r.Value
+	case ruleApplePlatformSigningID:
+		return "apple-platform-signing-id:" + r.Value
+	}
+	return r.Value
+}
+
+// matchesAnyRule reports whether peer satisfies at least one of the rules.
+func matchesAnyRule(rules []CallerRule, peer Peer) bool {
+	for _, r := range rules {
+		if r.matches(peer) {
+			return true
+		}
+	}
+	return false
+}
+
 // pathMatches compares a peer path against an allowlisted path, resolving
 // symlinks in the allowlist entry so configured symlinked paths match.
 func pathMatches(peerPath, allowed string) bool {
