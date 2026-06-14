@@ -1,0 +1,30 @@
+# touchid-agent -allowed-callers example
+#
+# Extra caller rules, one per line, added on top of the built-in default
+# (genuine Apple OS SSH binaries: anchor apple + com.apple.{ssh,scp,sftp,ssh-keygen}).
+# Blank lines and lines starting with '#' are ignored.
+#
+# IMPORTANT: for the identity rules below to be tamper-resistant, this file
+# must live somewhere the caller it authorizes cannot rewrite — a root-owned
+# path (e.g. /etc/touchid-agent/allowed-callers, root:wheel 0644) or delivered
+# via a Managed Preferences / MDM profile. A rule in a user-writable file is
+# only as trustworthy as that file.
+
+# Allow a binary signed with your organisation's Apple Developer Team ID.
+# Honored only when the signature anchors to Apple (a self-signed binary
+# cannot claim a Team ID). Self-maintaining across version updates — the
+# recommended way to allow in-house or vendor SSH tooling.
+# team-id:ABCDE12345
+
+# Allow by code signing identifier (also requires an Apple anchor).
+# signing-id:com.example.ssh-wrapper
+
+# Pin an exact binary by its code directory hash. Cryptographic, so trusted
+# regardless of signing anchor — but it changes on every rebuild/upgrade.
+# cdhash:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+
+# Escape hatch: allow by path. Works for ad-hoc / unsigned callers (e.g. some
+# Homebrew builds), but a user-writable path can be replaced, so this is the
+# least secure option and the agent logs a warning at startup when used.
+# Prefer a team-id/signing-id/cdhash rule above where the caller is signed.
+# path:/opt/homebrew/bin/ssh

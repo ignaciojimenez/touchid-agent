@@ -9,98 +9,124 @@ import (
 	"testing"
 )
 
+// applePeer is a stand-in for a genuine Apple platform binary (e.g. /usr/bin/ssh).
+func applePeer(signingID string) Peer {
+	return Peer{PID: 10, UID: 501, Path: "/usr/bin/" + signingID, SigningID: signingID, Signed: true, ApplePlatform: true, AppleAnchored: true}
+}
+
 func TestPeerPolicy_NilSafe(t *testing.T) {
 	var p *PeerPolicy
-	if err := p.CheckCaller(Peer{PID: 1, Path: "/usr/bin/ssh"}); err != nil {
+	if err := p.CheckCaller(applePeer("com.apple.ssh")); err != nil {
 		t.Errorf("nil policy CheckCaller should return nil, got %v", err)
 	}
 	if err := p.CheckRate("key"); err != nil {
 		t.Errorf("nil policy CheckRate should return nil, got %v", err)
 	}
-	if p.IsAllowedCaller("/usr/bin/ssh") {
+	if p.IsAllowedCaller(applePeer("com.apple.ssh")) {
 		t.Error("nil policy IsAllowedCaller should return false")
 	}
 }
 
-func TestPeerPolicy_IsAllowedCaller_DefaultPath(t *testing.T) {
+func TestPeerPolicy_Default_AllowsApplePlatformSSH(t *testing.T) {
 	p := NewPeerPolicy(true, 0, nil)
-	if !p.IsAllowedCaller("/usr/bin/ssh") {
-		t.Error("/usr/bin/ssh should be allowed by default")
-	}
-}
-
-// git SSH commit/tag signing connects to the agent as ssh-keygen, so it
-// must be in the default allowlist or signing breaks under default-on
-// peer verification.
-func TestPeerPolicy_IsAllowedCaller_DefaultIncludesSSHKeygen(t *testing.T) {
-	p := NewPeerPolicy(true, 0, nil)
-	if !p.IsAllowedCaller("/usr/bin/ssh-keygen") {
-		t.Error("/usr/bin/ssh-keygen should be allowed by default (git signing)")
-	}
-}
-
-func TestPeerPolicy_IsAllowedCaller_DefaultExcludesHomebrew(t *testing.T) {
-	p := NewPeerPolicy(true, 0, nil)
-	for _, path := range []string{"/opt/homebrew/bin/ssh", "/usr/local/bin/ssh"} {
-		if p.IsAllowedCaller(path) {
-			t.Errorf("%s should not be allowed by default", path)
+	for _, id := range []string{"com.apple.ssh", "com.apple.scp", "com.apple.sftp", "com.apple.ssh-keygen"} {
+		if !p.IsAllowedCaller(applePeer(id)) {
+			t.Errorf("Apple platform %s should be allowed by default", id)
 		}
 	}
 }
 
-func TestPeerPolicy_IsAllowedCaller_ExplicitHomebrew(t *testing.T) {
-	path := "/opt/homebrew/bin/ssh"
-	p := NewPeerPolicy(true, 0, []string{path})
-	if !p.IsAllowedCaller(path) {
-		t.Error("explicit Homebrew caller should be allowed")
-	}
-}
-
-func TestPeerPolicy_IsAllowedCaller_EmptyPath(t *testing.T) {
+func TestPeerPolicy_Default_RejectsNonAppleSigned(t *testing.T) {
+	// A validly signed third-party SSH (e.g. Homebrew via some Team ID) is
+	// not Apple-platform, so the default policy rejects it.
 	p := NewPeerPolicy(true, 0, nil)
-	if p.IsAllowedCaller("") {
-		t.Error("empty path should not be allowed")
+	hb := Peer{PID: 11, Path: "/opt/homebrew/bin/ssh", SigningID: "org.openssh.ssh", Signed: true, AppleAnchored: true, TeamID: "ABCDE12345"}
+	if p.IsAllowedCaller(hb) {
+		t.Error("non-Apple-platform signed binary should be rejected by default")
 	}
 }
 
-func TestPeerPolicy_IsAllowedCaller_UnknownPath(t *testing.T) {
+// Security: a binary that merely *claims* an Apple Signing ID but does not
+// validate against "anchor apple" must not be allowed.
+func TestPeerPolicy_Default_RejectsSpoofedAppleSigningID(t *testing.T) {
 	p := NewPeerPolicy(true, 0, nil)
-	if p.IsAllowedCaller("/tmp/evil-ssh") {
-		t.Error("unknown path should not be allowed")
+	spoof := Peer{PID: 12, Path: "/tmp/evil", SigningID: "com.apple.ssh", Signed: true, ApplePlatform: false}
+	if p.IsAllowedCaller(spoof) {
+		t.Error("binary claiming com.apple.ssh without anchor apple must be rejected")
 	}
 }
 
-func TestPeerPolicy_IsAllowedCaller_ExtraPaths(t *testing.T) {
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "my-ssh")
-	os.WriteFile(bin, []byte("#!/bin/sh\n"), 0755)
-
-	// proc_pidpath returns resolved paths, so simulate that
-	resolved, err := filepath.EvalSymlinks(bin)
-	if err != nil {
-		t.Fatal(err)
+func TestPeerPolicy_TeamIDRule(t *testing.T) {
+	p := NewPeerPolicy(true, 0, []CallerRule{{ruleTeamID, "ABCDE12345"}})
+	ok := Peer{PID: 13, Path: "/Applications/Tool.app/ssh", TeamID: "ABCDE12345", Signed: true, AppleAnchored: true}
+	if !p.IsAllowedCaller(ok) {
+		t.Error("Apple-anchored caller with matching Team ID should be allowed")
 	}
-	p := NewPeerPolicy(true, 0, []string{bin})
-	if !p.IsAllowedCaller(resolved) {
-		t.Error("extra caller path should be allowed")
+	// Security: a forged/self-signed binary claiming the Team ID is not
+	// Apple-anchored, so the rule must not honor it.
+	forged := Peer{PID: 14, Path: "/tmp/evil", TeamID: "ABCDE12345", Signed: true, AppleAnchored: false}
+	if p.IsAllowedCaller(forged) {
+		t.Error("non-Apple-anchored binary claiming Team ID must be rejected")
 	}
 }
 
-func TestPeerPolicy_IsAllowedCaller_Symlink(t *testing.T) {
+func TestPeerPolicy_SigningIDRule(t *testing.T) {
+	p := NewPeerPolicy(true, 0, []CallerRule{{ruleSigningID, "org.example.ssh"}})
+	ok := Peer{PID: 15, Path: "/opt/x/ssh", SigningID: "org.example.ssh", Signed: true, AppleAnchored: true}
+	if !p.IsAllowedCaller(ok) {
+		t.Error("Apple-anchored caller with matching Signing ID should be allowed")
+	}
+	if p.IsAllowedCaller(Peer{SigningID: "org.example.ssh", AppleAnchored: false}) {
+		t.Error("non-anchored Signing ID claim must be rejected")
+	}
+}
+
+func TestPeerPolicy_CDHashRule(t *testing.T) {
+	p := NewPeerPolicy(true, 0, []CallerRule{{ruleCDHash, "9F86D081"}})
+	// CDHash is cryptographic, honored regardless of anchor, case-insensitive.
+	if !p.IsAllowedCaller(Peer{PID: 16, Path: "/tmp/x", CDHash: "9f86d081"}) {
+		t.Error("matching cdhash should be allowed regardless of anchor")
+	}
+	if p.IsAllowedCaller(Peer{CDHash: "deadbeef"}) {
+		t.Error("non-matching cdhash should be rejected")
+	}
+}
+
+func TestPeerPolicy_PathRule_EscapeHatch(t *testing.T) {
+	// Path rules authorize even unsigned callers (the escape hatch).
+	p := NewPeerPolicy(true, 0, []CallerRule{{rulePath, "/opt/homebrew/bin/ssh"}})
+	if !p.IsAllowedCaller(Peer{PID: 17, Path: "/opt/homebrew/bin/ssh", Signed: false}) {
+		t.Error("path rule should allow the configured path even when unsigned")
+	}
+	if p.IsAllowedCaller(Peer{Path: "/opt/homebrew/bin/scp"}) {
+		t.Error("path rule should not allow a different path")
+	}
+}
+
+func TestPeerPolicy_PathRule_SymlinkResolved(t *testing.T) {
 	dir := t.TempDir()
 	real := filepath.Join(dir, "ssh")
 	os.WriteFile(real, []byte("#!/bin/sh\n"), 0755)
 	link := filepath.Join(dir, "ssh-link")
 	os.Symlink(real, link)
-
-	// proc_pidpath returns the resolved path of the running binary
 	realResolved, err := filepath.EvalSymlinks(real)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := NewPeerPolicy(true, 0, []string{link})
-	if !p.IsAllowedCaller(realResolved) {
-		t.Error("should allow caller via resolved symlink")
+	p := NewPeerPolicy(true, 0, []CallerRule{{rulePath, link}})
+	if !p.IsAllowedCaller(Peer{Path: realResolved}) {
+		t.Error("path rule should match via resolved symlink")
+	}
+}
+
+func TestPeerPolicy_PathRules(t *testing.T) {
+	p := NewPeerPolicy(true, 0, []CallerRule{
+		{ruleTeamID, "ABCDE12345"},
+		{rulePath, "/opt/homebrew/bin/ssh"},
+		{rulePath, "/usr/local/bin/ssh"},
+	})
+	if got := p.pathRules(); len(got) != 2 {
+		t.Errorf("pathRules() = %v, want 2 path rules", got)
 	}
 }
 
@@ -118,17 +144,89 @@ func TestPeerPolicy_CheckCaller_RejectsUnknown(t *testing.T) {
 	}
 }
 
-func TestPeerPolicy_CheckCaller_RejectsEmptyPath(t *testing.T) {
+func TestPeerPolicy_CheckCaller_RejectsEmptyPeer(t *testing.T) {
 	p := NewPeerPolicy(true, 0, nil)
 	if err := p.CheckCaller(Peer{PID: 1}); err == nil {
-		t.Error("enforce=true should reject empty path")
+		t.Error("enforce=true should reject an unidentifiable peer")
 	}
 }
 
-func TestPeerPolicy_CheckCaller_AllowsKnown(t *testing.T) {
+func TestPeerPolicy_CheckCaller_AllowsApple(t *testing.T) {
 	p := NewPeerPolicy(true, 0, nil)
-	if err := p.CheckCaller(Peer{PID: 1, Path: "/usr/bin/ssh"}); err != nil {
-		t.Errorf("should allow /usr/bin/ssh, got %v", err)
+	if err := p.CheckCaller(applePeer("com.apple.ssh")); err != nil {
+		t.Errorf("should allow Apple platform ssh, got %v", err)
+	}
+}
+
+func TestParseCallerRule(t *testing.T) {
+	cases := []struct {
+		line string
+		want CallerRule
+	}{
+		{"team-id:ABCDE12345", CallerRule{ruleTeamID, "ABCDE12345"}},
+		{"teamid:ABCDE12345", CallerRule{ruleTeamID, "ABCDE12345"}},
+		{"signing-id:org.example.ssh", CallerRule{ruleSigningID, "org.example.ssh"}},
+		{"cdhash:9f86d081", CallerRule{ruleCDHash, "9f86d081"}},
+		{"path:/opt/homebrew/bin/ssh", CallerRule{rulePath, "/opt/homebrew/bin/ssh"}},
+		{"/usr/local/bin/ssh", CallerRule{rulePath, "/usr/local/bin/ssh"}}, // bare path back-compat
+	}
+	for _, c := range cases {
+		got, err := parseCallerRule(c.line)
+		if err != nil {
+			t.Errorf("parseCallerRule(%q) error: %v", c.line, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("parseCallerRule(%q) = %+v, want %+v", c.line, got, c.want)
+		}
+	}
+}
+
+func TestParseCallerRule_Errors(t *testing.T) {
+	for _, line := range []string{"bogus", "relative/path", "team-id:", "unknown:value"} {
+		if _, err := parseCallerRule(line); err == nil {
+			t.Errorf("parseCallerRule(%q) should error", line)
+		}
+	}
+}
+
+func TestLoadAllowedCallers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "callers.txt")
+	content := "# Comment\nteam-id:ABCDE12345\n\n/usr/local/bin/ssh\npath:/opt/homebrew/bin/ssh\ncdhash:deadbeef\n"
+	os.WriteFile(path, []byte(content), 0644)
+
+	rules, err := loadAllowedCallers(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []CallerRule{
+		{ruleTeamID, "ABCDE12345"},
+		{rulePath, "/usr/local/bin/ssh"},
+		{rulePath, "/opt/homebrew/bin/ssh"},
+		{ruleCDHash, "deadbeef"},
+	}
+	if len(rules) != len(want) {
+		t.Fatalf("got %d rules, want %d: %+v", len(rules), len(want), rules)
+	}
+	for i := range want {
+		if rules[i] != want[i] {
+			t.Errorf("rule %d = %+v, want %+v", i, rules[i], want[i])
+		}
+	}
+}
+
+func TestLoadAllowedCallers_MissingFile(t *testing.T) {
+	_, err := loadAllowedCallers("/nonexistent/file")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestLoadAllowedCallers_BadLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "callers.txt")
+	os.WriteFile(path, []byte("team-id:ABCDE12345\nnot-a-valid-rule\n"), 0644)
+	if _, err := loadAllowedCallers(path); err == nil {
+		t.Error("expected error for an invalid rule line")
 	}
 }
 
@@ -194,30 +292,6 @@ func TestPeerPolicy_CheckRate_Concurrent(t *testing.T) {
 	wg.Wait()
 	if allowed != 50 {
 		t.Errorf("expected 50 allowed, got %d (rejected %d)", allowed, rejected)
-	}
-}
-
-func TestLoadAllowedCallers(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "callers.txt")
-	content := "# Comment\n/usr/bin/ssh\n\n/custom/path\n# Another comment\n"
-	os.WriteFile(path, []byte(content), 0644)
-
-	paths, err := loadAllowedCallers(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(paths) != 2 {
-		t.Fatalf("expected 2 paths, got %d: %v", len(paths), paths)
-	}
-	if paths[0] != "/usr/bin/ssh" || paths[1] != "/custom/path" {
-		t.Errorf("unexpected paths: %v", paths)
-	}
-}
-
-func TestLoadAllowedCallers_MissingFile(t *testing.T) {
-	_, err := loadAllowedCallers("/nonexistent/file")
-	if err == nil {
-		t.Error("expected error for missing file")
 	}
 }
 

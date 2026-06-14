@@ -21,6 +21,24 @@ static void cfStringToBuf(CFStringRef s, char *out, size_t out_len) {
 	}
 }
 
+// satisfiesRequirement reports whether code validates against the given code
+// signing requirement string (e.g. "anchor apple"). Returns 0 if not.
+static int satisfiesRequirement(SecCodeRef code, const char *reqStr) {
+	CFStringRef s = CFStringCreateWithCString(NULL, reqStr, kCFStringEncodingUTF8);
+	if (s == NULL) {
+		return 0;
+	}
+	SecRequirementRef req = NULL;
+	OSStatus st = SecRequirementCreateWithString(s, kSecCSDefaultFlags, &req);
+	CFRelease(s);
+	if (st != errSecSuccess || req == NULL) {
+		return 0;
+	}
+	int ok = (SecCodeCheckValidity(code, kSecCSDefaultFlags, req) == errSecSuccess) ? 1 : 0;
+	CFRelease(req);
+	return ok;
+}
+
 // peerCodeIdentity resolves the code-signing identity of the process on the
 // other end of unix socket fd, race-free, via its audit token. Returns 0 if a
 // SecCode was obtained (team_id/signing_id/cdhash_hex may still be empty for
@@ -31,8 +49,10 @@ static int peerCodeIdentity(int fd,
 		char *team_id, size_t team_len,
 		char *signing_id, size_t signing_len,
 		char *cdhash_hex, size_t cdhash_len,
-		int *valid) {
+		int *valid, int *apple_platform, int *apple_anchored) {
 	*valid = 0;
+	*apple_platform = 0;
+	*apple_anchored = 0;
 	if (path_len) path[0] = '\0';
 	if (team_len) team_id[0] = '\0';
 	if (signing_len) signing_id[0] = '\0';
@@ -66,6 +86,11 @@ static int peerCodeIdentity(int fd,
 
 	// Dynamic validity of the running code's signature.
 	*valid = (SecCodeCheckValidity(code, kSecCSDefaultFlags, NULL) == errSecSuccess) ? 1 : 0;
+	// Validated anchors: "anchor apple" = genuine Apple OS binary;
+	// "anchor apple generic" = any Apple-issued (Developer ID) chain. These
+	// gate whether a claimed Team ID / Signing ID can be trusted.
+	*apple_platform = satisfiesRequirement(code, "anchor apple");
+	*apple_anchored = satisfiesRequirement(code, "anchor apple generic");
 
 	CFDictionaryRef info = NULL;
 	if (SecCodeCopySigningInformation(code, kSecCSSigningInformation, &info) == errSecSuccess && info != NULL) {
@@ -108,6 +133,13 @@ type CallerIdentity struct {
 	SigningID string // code signing identifier, e.g. "com.apple.ssh-keygen"
 	CDHash    string // lowercase hex of the code directory hash
 	Signed    bool   // the running code's signature validates
+
+	// ApplePlatform: validates against "anchor apple" (a genuine Apple OS
+	// binary). AppleAnchored: validates against "anchor apple generic" (any
+	// Apple-issued chain, incl. third-party Developer ID). A claimed TeamID
+	// or SigningID is only trustworthy when AppleAnchored is true.
+	ApplePlatform bool
+	AppleAnchored bool
 }
 
 // resolveCallerIdentity returns the code-signing identity of the process on the
@@ -115,26 +147,30 @@ type CallerIdentity struct {
 // could not be obtained (e.g. the peer is not a local process).
 func resolveCallerIdentity(fd uintptr) (CallerIdentity, bool) {
 	var (
-		path      [4096]C.char
-		teamID    [128]C.char
-		signingID [256]C.char
-		cdhash    [128]C.char
-		valid     C.int
+		path          [4096]C.char
+		teamID        [128]C.char
+		signingID     [256]C.char
+		cdhash        [128]C.char
+		valid         C.int
+		applePlatform C.int
+		appleAnchored C.int
 	)
 	rc := C.peerCodeIdentity(C.int(fd),
 		&path[0], C.size_t(len(path)),
 		&teamID[0], C.size_t(len(teamID)),
 		&signingID[0], C.size_t(len(signingID)),
 		&cdhash[0], C.size_t(len(cdhash)),
-		&valid)
+		&valid, &applePlatform, &appleAnchored)
 	if rc != 0 {
 		return CallerIdentity{}, false
 	}
 	return CallerIdentity{
-		Path:      C.GoString(&path[0]),
-		TeamID:    C.GoString(&teamID[0]),
-		SigningID: C.GoString(&signingID[0]),
-		CDHash:    C.GoString(&cdhash[0]),
-		Signed:    valid == 1,
+		Path:          C.GoString(&path[0]),
+		TeamID:        C.GoString(&teamID[0]),
+		SigningID:     C.GoString(&signingID[0]),
+		CDHash:        C.GoString(&cdhash[0]),
+		Signed:        valid == 1,
+		ApplePlatform: applePlatform == 1,
+		AppleAnchored: appleAnchored == 1,
 	}, true
 }

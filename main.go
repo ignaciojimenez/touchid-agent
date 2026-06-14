@@ -92,7 +92,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "                          (default: ~/Library/Logs/touchid-agent-audit.log; \"-\" = stderr)\n")
 		fmt.Fprintf(os.Stderr, "  -no-peer-check          disable peer binary verification (NOT recommended)\n")
 		fmt.Fprintf(os.Stderr, "  -rate-limit N           max signing operations per key per minute (ceiling: 120)\n")
-		fmt.Fprintf(os.Stderr, "  -allowed-callers PATH   path to file listing additional allowed caller binaries\n")
+		fmt.Fprintf(os.Stderr, "  -allowed-callers PATH   file of extra caller rules (team-id:/signing-id:/cdhash:/path:)\n")
 		fmt.Fprintf(os.Stderr, "  -v                      enable verbose debug logging on stderr\n\n")
 	}
 
@@ -102,7 +102,7 @@ func main() {
 	noPeerCheck := flag.Bool("no-peer-check", false, "agent: disable peer binary verification (NOT recommended)")
 	peerCheckDeprecated := flag.Bool("peer-check", false, "agent: deprecated no-op; peer verification is enabled by default")
 	rateLimit := flag.Int("rate-limit", 0, "agent: max signing operations per key per minute (0=off, ceiling=120)")
-	allowedCallersFile := flag.String("allowed-callers", "", "agent: path to file listing additional allowed caller binaries")
+	allowedCallersFile := flag.String("allowed-callers", "", "agent: file of extra caller rules (team-id:/signing-id:/cdhash:/path:)")
 	createKey := flag.String("create", "", "create a new key with the given label")
 	noTouch := flag.Bool("no-touch", false, "create: do not require Touch ID for this key")
 	postHook := flag.String("post-hook", "", "create: run command after key creation")
@@ -536,17 +536,20 @@ func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string
 		}
 	}
 
-	var extraCallers []string
+	var extraRules []CallerRule
 	if allowedCallersFile != "" {
 		var err error
-		extraCallers, err = loadAllowedCallers(allowedCallersFile)
+		extraRules, err = loadAllowedCallers(allowedCallersFile)
 		if err != nil {
 			log.Fatalf("Failed to load allowed callers: %v\n", err)
 		}
 	}
-	policy := NewPeerPolicy(peerCheck, rateLimit, extraCallers)
+	policy := NewPeerPolicy(peerCheck, rateLimit, extraRules)
 	if peerCheck {
-		log.Printf("Peer verification enabled (%d allowed caller paths)", len(policy.allowedPaths))
+		log.Printf("Peer verification enabled (%d caller rules; callers identified by code signature)", len(policy.rules))
+		if pr := policy.pathRules(); len(pr) > 0 {
+			log.Printf("WARNING: %d path-based caller rule(s) configured (%s). Path rules authorize a binary by location, including unsigned ones, and a user-writable path can be replaced. Prefer team-id/signing-id/cdhash rules where possible.", len(pr), strings.Join(pr, ", "))
+		}
 	} else {
 		log.Println("WARNING: peer verification is DISABLED (-no-peer-check). Any process running as your user can request signatures from this agent without an allowlist check. This is not recommended.")
 	}
