@@ -90,10 +90,11 @@ func pathMatches(peerPath, allowed string) bool {
 // PeerPolicy enforces caller verification and rate limiting on signing
 // operations. A nil *PeerPolicy is a valid no-op policy.
 type PeerPolicy struct {
-	rules     []CallerRule
-	enforce   bool
-	rateLimit int
-	rates     sync.Map // label -> *rateBucket
+	rules           []CallerRule
+	enforce         bool
+	requireHardened bool // additionally require the caller to use the hardened runtime
+	rateLimit       int
+	rates           sync.Map // label -> *rateBucket
 }
 
 func NewPeerPolicy(enforce bool, rateLimit int, extraRules []CallerRule) *PeerPolicy {
@@ -144,14 +145,19 @@ func (p *PeerPolicy) CheckCaller(peer Peer) error {
 	if p == nil || !p.enforce {
 		return nil
 	}
-	if p.IsAllowedCaller(peer) {
-		return nil
+	if !p.IsAllowedCaller(peer) {
+		if peer.Path == "" {
+			return fmt.Errorf("peer could not be identified (pid %d)", peer.PID)
+		}
+		return fmt.Errorf("caller not in allowlist: %s (pid %d, signing_id=%q team_id=%q signed=%v)",
+			peer.Path, peer.PID, peer.SigningID, peer.TeamID, peer.Signed)
 	}
-	if peer.Path == "" {
-		return fmt.Errorf("peer could not be identified (pid %d)", peer.PID)
+	// Additional gate: a same-UID process can only inject into a caller that
+	// is NOT hardened-runtime (without root), so optionally require it.
+	if p.requireHardened && !peer.Hardened {
+		return fmt.Errorf("caller not hardened-runtime: %s (pid %d)", peer.Path, peer.PID)
 	}
-	return fmt.Errorf("caller not in allowlist: %s (pid %d, signing_id=%q team_id=%q signed=%v)",
-		peer.Path, peer.PID, peer.SigningID, peer.TeamID, peer.Signed)
+	return nil
 }
 
 // CheckRate returns an error if the per-key signing rate has been

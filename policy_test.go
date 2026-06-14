@@ -158,6 +158,23 @@ func TestPeerPolicy_CheckCaller_AllowsApple(t *testing.T) {
 	}
 }
 
+func TestPeerPolicy_RequireHardened(t *testing.T) {
+	p := NewPeerPolicy(true, 0, nil)
+	p.requireHardened = true
+
+	hardened := applePeer("com.apple.ssh")
+	hardened.Hardened = true
+	if err := p.CheckCaller(hardened); err != nil {
+		t.Errorf("hardened Apple caller should be allowed, got %v", err)
+	}
+
+	// Matches a rule but is not hardened -> rejected by the extra gate.
+	notHardened := applePeer("com.apple.ssh") // Hardened defaults to false
+	if err := p.CheckCaller(notHardened); err == nil {
+		t.Error("non-hardened caller should be rejected when require-hardened is set")
+	}
+}
+
 func TestParseCallerRule(t *testing.T) {
 	cases := []struct {
 		line string

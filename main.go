@@ -93,6 +93,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  -no-peer-check          disable peer binary verification (NOT recommended)\n")
 		fmt.Fprintf(os.Stderr, "  -rate-limit N           max signing operations per key per minute (ceiling: 120)\n")
 		fmt.Fprintf(os.Stderr, "  -allowed-callers PATH   file of extra caller rules (team-id:/signing-id:/cdhash:/path:)\n")
+		fmt.Fprintf(os.Stderr, "  -require-hardened-callers  also require callers to use the hardened runtime\n")
 		fmt.Fprintf(os.Stderr, "  -v                      enable verbose debug logging on stderr\n\n")
 	}
 
@@ -103,6 +104,7 @@ func main() {
 	peerCheckDeprecated := flag.Bool("peer-check", false, "agent: deprecated no-op; peer verification is enabled by default")
 	rateLimit := flag.Int("rate-limit", 0, "agent: max signing operations per key per minute (0=off, ceiling=120)")
 	allowedCallersFile := flag.String("allowed-callers", "", "agent: file of extra caller rules (team-id:/signing-id:/cdhash:/path:)")
+	requireHardened := flag.Bool("require-hardened-callers", false, "agent: also require callers to use the hardened runtime")
 	createKey := flag.String("create", "", "create a new key with the given label")
 	noTouch := flag.Bool("no-touch", false, "create: do not require Touch ID for this key")
 	postHook := flag.String("post-hook", "", "create: run command after key creation")
@@ -202,9 +204,9 @@ func main() {
 		}
 		cmdDeleteAll(store, labels)
 	case *launchdMode:
-		cmdRun(store, "", true, *auditLogPath, peerCheck, *rateLimit, *allowedCallersFile)
+		cmdRun(store, "", true, *auditLogPath, peerCheck, *rateLimit, *allowedCallersFile, *requireHardened)
 	case *socketPath != "":
-		cmdRun(store, *socketPath, false, *auditLogPath, peerCheck, *rateLimit, *allowedCallersFile)
+		cmdRun(store, *socketPath, false, *auditLogPath, peerCheck, *rateLimit, *allowedCallersFile, *requireHardened)
 	default:
 		flag.Usage()
 		os.Exit(1)
@@ -498,14 +500,14 @@ func parseStaleLModeProcesses(psOutput, socketPath string, selfPid int) []int {
 
 const launchdIdleTimeout = 10 * time.Minute
 
-func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string, peerCheck bool, rateLimit int, allowedCallersFile string) {
+func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string, peerCheck bool, rateLimit int, allowedCallersFile string, requireHardened bool) {
 	if !launchd && term.IsTerminal(int(os.Stdin.Fd())) {
 		log.Println("Warning: touchid-agent is meant to run as a background daemon.")
 		log.Println("Running multiple instances is likely to lead to conflicts.")
 		log.Println("Consider using the launchd service.")
 	}
 
-	applyManagedOverrides(&auditLogPath, &peerCheck, &rateLimit, &allowedCallersFile)
+	applyManagedOverrides(&auditLogPath, &peerCheck, &rateLimit, &allowedCallersFile, &requireHardened)
 
 	// Audit logging is on by default: events go to a per-user file unless
 	// -audit-log gives another path. "-" opts back out to stderr (the
@@ -545,8 +547,12 @@ func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string
 		}
 	}
 	policy := NewPeerPolicy(peerCheck, rateLimit, extraRules)
+	policy.requireHardened = requireHardened
 	if peerCheck {
 		log.Printf("Peer verification enabled (%d caller rules; callers identified by code signature)", len(policy.rules))
+		if requireHardened {
+			log.Printf("Caller hardened-runtime requirement enabled")
+		}
 		if pr := policy.pathRules(); len(pr) > 0 {
 			log.Printf("WARNING: %d path-based caller rule(s) configured (%s). Path rules authorize a binary by location, including unsigned ones, and a user-writable path can be replaced. Prefer team-id/signing-id/cdhash rules where possible.", len(pr), strings.Join(pr, ", "))
 		}

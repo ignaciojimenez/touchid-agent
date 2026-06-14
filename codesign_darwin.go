@@ -49,10 +49,11 @@ static int peerCodeIdentity(int fd,
 		char *team_id, size_t team_len,
 		char *signing_id, size_t signing_len,
 		char *cdhash_hex, size_t cdhash_len,
-		int *valid, int *apple_platform, int *apple_anchored) {
+		int *valid, int *apple_platform, int *apple_anchored, int *hardened) {
 	*valid = 0;
 	*apple_platform = 0;
 	*apple_anchored = 0;
+	*hardened = 0;
 	if (path_len) path[0] = '\0';
 	if (team_len) team_id[0] = '\0';
 	if (signing_len) signing_id[0] = '\0';
@@ -102,6 +103,15 @@ static int peerCodeIdentity(int fd,
 			CFURLGetFileSystemRepresentation(url, true, (UInt8 *)path, (CFIndex)path_len);
 		}
 
+		// CS_RUNTIME (0x10000) in the code signing flags == hardened runtime.
+		CFNumberRef flags = (CFNumberRef)CFDictionaryGetValue(info, kSecCodeInfoFlags);
+		if (flags != NULL) {
+			uint32_t f = 0;
+			if (CFNumberGetValue(flags, kCFNumberSInt32Type, &f)) {
+				*hardened = (f & 0x10000) ? 1 : 0;
+			}
+		}
+
 		CFDataRef cdhash = (CFDataRef)CFDictionaryGetValue(info, kSecCodeInfoUnique);
 		if (cdhash != NULL && cdhash_len > 0) {
 			const UInt8 *b = CFDataGetBytePtr(cdhash);
@@ -140,6 +150,9 @@ type CallerIdentity struct {
 	// or SigningID is only trustworthy when AppleAnchored is true.
 	ApplePlatform bool
 	AppleAnchored bool
+	// Hardened: the caller runs with the hardened runtime (CS_RUNTIME), which
+	// prevents a same-UID process from injecting into it without root.
+	Hardened bool
 }
 
 // resolveCallerIdentity returns the code-signing identity of the process on the
@@ -154,13 +167,14 @@ func resolveCallerIdentity(fd uintptr) (CallerIdentity, bool) {
 		valid         C.int
 		applePlatform C.int
 		appleAnchored C.int
+		hardened      C.int
 	)
 	rc := C.peerCodeIdentity(C.int(fd),
 		&path[0], C.size_t(len(path)),
 		&teamID[0], C.size_t(len(teamID)),
 		&signingID[0], C.size_t(len(signingID)),
 		&cdhash[0], C.size_t(len(cdhash)),
-		&valid, &applePlatform, &appleAnchored)
+		&valid, &applePlatform, &appleAnchored, &hardened)
 	if rc != 0 {
 		return CallerIdentity{}, false
 	}
@@ -172,5 +186,6 @@ func resolveCallerIdentity(fd uintptr) (CallerIdentity, bool) {
 		Signed:        valid == 1,
 		ApplePlatform: applePlatform == 1,
 		AppleAnchored: appleAnchored == 1,
+		Hardened:      hardened == 1,
 	}, true
 }

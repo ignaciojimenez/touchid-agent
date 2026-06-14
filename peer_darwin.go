@@ -30,6 +30,7 @@ type Peer struct {
 	Signed        bool
 	ApplePlatform bool // validates against "anchor apple" (genuine Apple OS binary)
 	AppleAnchored bool // validates against "anchor apple generic" (Apple-issued chain)
+	Hardened      bool // runs with the hardened runtime (CS_RUNTIME)
 }
 
 // peerCreds returns the PID, UID, and binary path of the process on
@@ -60,6 +61,7 @@ func peerCreds(c net.Conn) Peer {
 			p.Signed = id.Signed
 			p.ApplePlatform = id.ApplePlatform
 			p.AppleAnchored = id.AppleAnchored
+			p.Hardened = id.Hardened
 			// The audit token identifies the actual connected process, so
 			// its main-executable path is not subject to the PID-reuse /
 			// TOCTOU race that proc_pidpath(PID) is. Prefer it.

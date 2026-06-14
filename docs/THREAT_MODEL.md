@@ -203,7 +203,12 @@ expose an attestation chain for SE keys on macOS (iOS has
    (your own Developer ID is ideal and self-maintaining) over `path:`.
    **Deliver the rules file from a root-owned path or Managed Preferences**
    so the authorized caller cannot rewrite its own rule, and pin the flag
-   fleet-wide through the `peer_check` Managed Preference.
+   fleet-wide through the `peer_check` Managed Preference. For an extra
+   margin against the inject-into-an-allowed-process residual, add
+   `-require-hardened-callers` (or the `require_hardened_callers` Managed
+   Preference): a same-UID process cannot inject into a hardened-runtime
+   caller without root. The Apple SSH tools are already hardened, so this
+   does not break the default set.
 5. **Enable rate limiting.** Add `-rate-limit 60` (or lower) for keys
    that are not expected to sign at high frequency. Use Touch ID-gated
    keys for anything where the rate limit alone is insufficient.

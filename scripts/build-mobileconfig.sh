@@ -22,10 +22,11 @@
 #
 # Managed keys (bundle ID: com.ignaciojimenez.touchid-agent):
 #
-#   audit_log_path  (string)  — path to JSON-lines audit log
-#   peer_check      (boolean) — verify peer binary against allowlist
-#   rate_limit      (integer) — max signing ops per key per minute
-#   allowed_callers (string)  — path to file listing allowed callers
+#   audit_log_path           (string)  — path to JSON-lines audit log
+#   peer_check               (boolean) — verify caller against allowlist
+#   rate_limit               (integer) — max signing ops per key per minute
+#   allowed_callers          (string)  — path to caller-rules file (root-owned)
+#   require_hardened_callers (boolean) — also require callers be hardened-runtime
 #
 # The agent reads these via CFPreferencesCopyAppValue. Managed values
 # override the matching CLI flag unconditionally.
@@ -89,6 +90,8 @@ cat > "$UNSIGNED" <<PLIST
                      file by editing the profile before MDM deployment. -->
                 <key>allowed_callers</key>
                 <string></string>
+                <key>require_hardened_callers</key>
+                <false/>
               </dict>
             </dict>
           </array>
