@@ -64,6 +64,7 @@ const (
 	managedKeyPeerCheck       = "peer_check"
 	managedKeyRateLimit       = "rate_limit"
 	managedKeyAllowedCallers  = "allowed_callers"
+	managedKeyRequireHardened = "require_hardened_callers"
 )
 
 // readManagedString, readManagedBool, readManagedInt are the lookup
@@ -153,7 +154,7 @@ func cfPrefInt(key string) (int, bool) {
 // flags and overwrites the pointed-to values when a managed key is
 // present. Each override is logged to stderr so IT has visibility in
 // ~/Library/Logs/touchid-agent.log.
-func applyManagedOverrides(auditLogPath *string, peerCheck *bool, rateLimit *int, allowedCallersFile *string) {
+func applyManagedOverrides(auditLogPath *string, peerCheck *bool, rateLimit *int, allowedCallersFile *string, requireHardened *bool) {
 	if v, ok := readManagedString(managedKeyAuditLogPath); ok {
 		*auditLogPath = v
 		log.Printf("Managed preference active: %s=%q", managedKeyAuditLogPath, v)
@@ -169,5 +170,9 @@ func applyManagedOverrides(auditLogPath *string, peerCheck *bool, rateLimit *int
 	if v, ok := readManagedString(managedKeyAllowedCallers); ok {
 		*allowedCallersFile = v
 		log.Printf("Managed preference active: %s=%q", managedKeyAllowedCallers, v)
+	}
+	if v, ok := readManagedBool(managedKeyRequireHardened); ok {
+		*requireHardened = v
+		log.Printf("Managed preference active: %s=%v", managedKeyRequireHardened, v)
 	}
 }

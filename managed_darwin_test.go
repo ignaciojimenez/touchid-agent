@@ -227,7 +227,8 @@ func TestApplyManagedOverrides_AllSet(t *testing.T) {
 			return "", false
 		},
 		func(key string) (bool, bool) {
-			if key == managedKeyPeerCheck {
+			switch key {
+			case managedKeyPeerCheck, managedKeyRequireHardened:
 				return true, true
 			}
 			return false, false
@@ -246,7 +247,8 @@ func TestApplyManagedOverrides_AllSet(t *testing.T) {
 	rateLimit := 0
 	allowedCallers := ""
 
-	applyManagedOverrides(&auditLog, &peerCheck, &rateLimit, &allowedCallers)
+	requireHardened := false
+	applyManagedOverrides(&auditLog, &peerCheck, &rateLimit, &allowedCallers, &requireHardened)
 
 	if auditLog != "/managed/audit.log" {
 		t.Errorf("auditLog = %q, want /managed/audit.log", auditLog)
@@ -259,6 +261,9 @@ func TestApplyManagedOverrides_AllSet(t *testing.T) {
 	}
 	if allowedCallers != "/managed/callers.txt" {
 		t.Errorf("allowedCallers = %q, want /managed/callers.txt", allowedCallers)
+	}
+	if !requireHardened {
+		t.Error("requireHardened = false, want true")
 	}
 }
 
@@ -275,7 +280,8 @@ func TestApplyManagedOverrides_NoneSet(t *testing.T) {
 	rateLimit := 10
 	allowedCallers := "/cli/callers.txt"
 
-	applyManagedOverrides(&auditLog, &peerCheck, &rateLimit, &allowedCallers)
+	requireHardened := false
+	applyManagedOverrides(&auditLog, &peerCheck, &rateLimit, &allowedCallers, &requireHardened)
 
 	if auditLog != "/cli/audit.log" {
 		t.Errorf("auditLog changed to %q, should be untouched", auditLog)
@@ -309,7 +315,8 @@ func TestApplyManagedOverrides_PartialOverride(t *testing.T) {
 	rateLimit := 5
 	allowedCallers := ""
 
-	applyManagedOverrides(&auditLog, &peerCheck, &rateLimit, &allowedCallers)
+	requireHardened := false
+	applyManagedOverrides(&auditLog, &peerCheck, &rateLimit, &allowedCallers, &requireHardened)
 
 	if auditLog != "/managed/audit.log" {
 		t.Errorf("auditLog = %q, want /managed/audit.log", auditLog)
@@ -345,7 +352,8 @@ func TestApplyManagedOverrides_OverridesCLIValues(t *testing.T) {
 	rateLimit := 30
 	allowedCallers := "/user/callers.txt"
 
-	applyManagedOverrides(&auditLog, &peerCheck, &rateLimit, &allowedCallers)
+	requireHardened := false
+	applyManagedOverrides(&auditLog, &peerCheck, &rateLimit, &allowedCallers, &requireHardened)
 
 	if auditLog != "/managed/override.log" {
 		t.Errorf("managed audit_log_path should override CLI value, got %q", auditLog)
