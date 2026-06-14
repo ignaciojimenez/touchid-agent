@@ -6,8 +6,9 @@ rewriting their launchd plist after a `brew upgrade`. It exists so a
 future session can pick up the in-flight tracks without re-doing the
 discovery — read this end-to-end before starting Track #2 or #3.
 
-For user-facing fleet deployment guidance see `docs/enterprise.md`
-(which assumes the maintainer has already done Track #2's work).
+User-facing fleet deployment guidance (`docs/deployment.md`) is still
+**planned** — see Track #2 §4 below; it is written after the first Munki
+pilot run.
 
 ## Why this exists
 
@@ -38,7 +39,7 @@ up cold.
 | # | Track | Audience | Status |
 |---|---|---|---|
 | 1 | Self-healing brew/individual upgrade | Individuals via brew | **Done (v0.3.0)** |
-| 2 | Signed `.pkg` for fleet deployment | IT pushing via MDM/Munki/Jamf | **Partial (v0.4.0)** — pkg + bootstrap LaunchAgent shipped; §3 (config profile + managed prefs) implemented, pending release; §4 (deployment.md) remains |
+| 2 | Signed `.pkg` for fleet deployment | IT pushing via MDM/Munki/Jamf | **Partial** — pkg + bootstrap LaunchAgent + signed config profile (managed prefs) all shipped; §4 (`deployment.md`, after a Munki pilot) remains |
 | 3 | Org-scale enrollment + inventory | Org operating at scale | Discovery |
 
 ---

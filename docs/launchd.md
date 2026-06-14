@@ -27,10 +27,12 @@ log directories, and loads the plist via launchctl. The socket is
 placed at `~/Library/Caches/touchid-agent/agent.sock` (matching
 yubikey-agent convention).
 
-To enable per-signing audit logging at install time:
+Audit logging is on by default (to `~/Library/Logs/touchid-agent-audit.log`),
+so a plain `touchid-agent -install-plist` already records signing events.
+Pass `-audit-log` only to write the log somewhere else:
 
 ```bash
-touchid-agent -install-plist -audit-log "$HOME/Library/Logs/touchid-agent-audit.log"
+touchid-agent -install-plist -audit-log "/var/log/touchid-agent/audit.log"
 ```
 
 The command is idempotent: if a socket-activation plist is already in

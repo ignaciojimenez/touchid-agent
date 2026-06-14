@@ -47,10 +47,12 @@ Full documentation lives in [`docs/`](docs/). Common entry points:
 | Topic | Link |
 |-------|------|
 | Migrating from yubikey-agent | [docs/migration.md](docs/migration.md) |
-| Fleet deployment (MDM, configuration profile, enrollment) | _planned_ |
+| launchd setup & socket activation | [docs/launchd.md](docs/launchd.md) |
+| Caller verification (allowlisting clients) | [docs/caller-verification.md](docs/caller-verification.md) |
 | Threat model | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) |
 | Post-create hooks | [docs/hooks.md](docs/hooks.md) |
 | Operational runbook | [docs/runbook.md](docs/runbook.md) |
+| Fleet deployment (MDM, configuration profile, enrollment) | _planned_ |
 | Building from source | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Security

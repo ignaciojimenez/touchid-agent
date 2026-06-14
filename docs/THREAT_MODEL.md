@@ -33,60 +33,55 @@ key itself.
 
 ## Threats
 
-### Malware on Host (user-level)
+Every threat below is rated with the same vocabulary:
 
-| Control | Status |
-|---------|--------|
-| Private key extraction | **Mitigated.** The SEP-wrapped blob on disk is non-extractable; the actual private key never leaves SEP hardware. |
-| Silent signing (Touch ID-gated key) | **Mitigated.** Each signing operation requires biometric confirmation enforced by the SEP. |
-| Silent signing (no-touch key) | **Partially mitigated.** By default, a macOS notification is shown on every signing event. Peer verification is **on by default**: only genuine Apple OS SSH binaries (validated `anchor apple` + `com.apple.{ssh,scp,sftp,ssh-keygen}` Signing ID) can trigger a signing request; everything else is rejected. It can be disabled with `-no-peer-check` or extended with `-allowed-callers` identity rules. With `-rate-limit`, signing frequency per key is capped (hard ceiling: 120/min). A sufficiently capable same-UID attacker who can inject into an allowed process or modify the launchd plist can still bypass these controls; Touch ID remains the only hardware-enforced guarantee. |
-| Agent socket impersonation | **Partially mitigated.** Socket is 0600, directory 0700. Malware could manipulate `SSH_AUTH_SOCK`. |
+- **Mitigated** — addressed in hardware or by design; no practical residual.
+- **Partial** — reduced, with a residual risk named in the notes.
+- **Not mitigated** — out of scope or an accepted residual.
+- **By design** — intentional behaviour, called out so it is not mistaken for a flaw.
+- **Informational** — noted for completeness; not a risk in itself.
 
-### Root Compromise
+The controls referenced in the notes are catalogued in [Security Properties](#security-properties).
 
-| Control | Status |
-|---------|--------|
-| Key material extraction | **Mitigated.** The SEP is a separate hardware processor; root cannot extract keys, only request signatures (which on Touch-ID-gated keys still require biometry). |
-| Socket access | **Not mitigated.** Root can read/write any Unix socket. |
-| Binary replacement | **Not mitigated.** Root can replace the agent binary. |
-| Touch ID bypass | **Partially mitigated.** Root may be able to suppress or fake biometric prompts in some configurations. |
+### Malware on host (same-UID, non-root)
 
-### Key Theft via Network
+| Threat | Status | Notes |
+|--------|--------|-------|
+| Private key extraction | Mitigated | The SEP-wrapped blob on disk is non-extractable; the key never leaves SEP hardware. |
+| Silent signing — Touch-ID key | Mitigated | Every signing operation requires biometric confirmation enforced by the SEP. |
+| Silent signing — no-touch key | Partial | A macOS notification fires on every signing event, and peer verification (below) is on by default. `-rate-limit` caps frequency. A same-UID attacker who injects into an allowed caller or edits the launchd plist can still bypass these; Touch ID is the only hardware-enforced guarantee. |
+| Unauthorized local caller drives the agent | Partial | The socket is 0600 and peer verification gates callers by code-signing identity (Apple OS SSH binaries by default); `-require-hardened-callers` blocks injection into non-hardened callers. Same-UID injection into an allowed, hardened caller remains possible. |
+| Socket impersonation via `SSH_AUTH_SOCK` | Partial | Socket is 0600, directory 0700; malware can still repoint `SSH_AUTH_SOCK` at its own socket. |
 
-**Fully mitigated.** The private key physically cannot leave the Secure
-Enclave. There is no export mechanism, no file to steal, and no memory
-to dump that contains key material.
+### Root compromise
 
-### Agent Socket Abuse
+| Threat | Status | Notes |
+|--------|--------|-------|
+| Key material extraction | Mitigated | The SEP is separate hardware; root can request signatures (touch-gated keys still need biometry) but cannot extract keys. |
+| Socket access | Not mitigated | Root can read/write any Unix socket. |
+| Binary replacement | Not mitigated | Root can replace the agent binary. |
+| Touch ID bypass | Partial | Root may suppress or fake biometric prompts in some configurations. |
 
-| Control | Details |
-|---------|---------|
-| Socket permissions | Created with mode 0600 (owner-only). |
-| Socket directory | Created with mode 0700. |
-| Connection timeouts | Idle connections are closed after 10 minutes to prevent FD exhaustion. |
-| Peer caller verification (on by default) | The connecting process is resolved **race-free from the socket's audit token** (`LOCAL_PEERTOKEN`), not `proc_pidpath(PID)` — closing the PID-reuse / TOCTOU window — and its **code-signing identity** is evaluated via `SecCode`. By default a caller is allowed only if it is a genuine Apple OS binary (validates against `anchor apple`) whose Signing ID is one of `com.apple.{ssh,scp,sftp,ssh-keygen}`. This cannot be satisfied by third-party code and is stronger than a path check (an Apple platform signature can't be forged). Additional callers are added via `-allowed-callers` rules — `team-id:` / `signing-id:` (honored only for Apple-anchored signatures, so a self-signed binary can't claim them), `cdhash:` (exact binary), or `path:` (escape hatch for unsigned/ad-hoc binaries, surfaced with a startup warning). For the identity rules to be tamper-resistant the rules file must live where the authorized caller cannot rewrite it (root-owned / Managed Preferences). Disable with `-no-peer-check`. Caller identity is recorded in the audit log. |
-| Rate limiting (`-rate-limit N`) | Signing operations are limited per key per minute using a sliding window. The ceiling is hard-coded at 120/min and cannot be overridden by configuration. |
-| Default signing audit | Audit logging is on by default: with no `-audit-log` path, signing events are written as JSON-lines to `~/Library/Logs/touchid-agent-audit.log` (file 0600, parent dir 0700, both auto-created). `-audit-log -` opts back out to stderr (the launchd log). |
+### Key theft over the network
 
-### Denial of Service
+| Threat | Status | Notes |
+|--------|--------|-------|
+| Remote key exfiltration | Mitigated | The private key cannot leave the Secure Enclave — no export mechanism, no file to steal, no memory to dump. |
 
-| Vector | Mitigation |
-|--------|------------|
-| Connection flood | Temporary accept errors are handled with backoff; non-temporary errors are fatal (crash-and-restart via launchd). |
-| Hung client holding mutex | Connection timeout (10 min) prevents indefinite lock holding. |
+### Denial of service
 
-### Input Validation
+| Threat | Status | Notes |
+|--------|--------|-------|
+| Connection flood | Partial | Temporary accept errors back off; non-temporary errors crash-and-restart via launchd. |
+| Hung client holding the key mutex | Mitigated | Idle connections are closed after 10 minutes. |
 
-- **osascript injection**: Notification messages are sanitized —
-  backslashes and double quotes are escaped; backticks and `$()` are
-  stripped.
-- **Key labels**: Validated to forbid colons, path separators, and
-  strings longer than 64 characters. `loadKeyfile` rejects files whose
-  JSON-claimed label does not match the on-disk filename.
-- **Post-create hooks**: Invoked via `exec.Command` (single argument,
-  no shell). The hook receives metadata through environment variables
-  (`TOUCHID_AGENT_LABEL`, `TOUCHID_AGENT_PUBKEY`, etc.) but never
-  private key material.
+### Input validation
+
+| Threat | Status | Notes |
+|--------|--------|-------|
+| osascript injection (notifications) | Mitigated | Messages are sanitized — backslashes and quotes escaped, backticks and `$()` stripped. |
+| Malicious key label | Mitigated | `validateLabel` forbids colons, path separators, and labels over 64 chars; `loadKeyfile` rejects a label that does not match the on-disk filename. |
+| Post-create hook input | By design | The hook is invoked via `exec.Command` (no shell), receives metadata via environment variables, and never receives key material. Detailed in [Post-Create Hook Attack Surface](#post-create-hook-attack-surface). |
 
 ## Post-Create Hook Attack Surface
 
@@ -114,16 +109,16 @@ environment.
 
 ### Threats and mitigations
 
-| Threat | Severity | Status | Details |
-|--------|----------|--------|---------|
-| Shell injection via hook path | **Mitigated** | `exec.Command(hookCmd)` executes the binary directly; no shell interprets the path. Pipes, redirects, and inline shell syntax are inert. |
-| Shell metacharacters in label | Low | **Partially mitigated** | `validateLabel` rejects colons, path separators, and strings >64 chars, but allows `$`, backticks, `()`, and semicolons. These are harmless in the env-var transport (no shell expansion), but a poorly-written hook that uses unquoted `$TOUCHID_AGENT_LABEL` in a shell expression could evaluate them. The included `contrib/hooks/` examples are safe. |
-| TOCTOU on hook binary | Low | **Not mitigated** | Between the user specifying `-post-hook PATH` and the hook executing (after key generation + self-test), an attacker with write access to the hook path could swap the binary. Practical exploitation requires same-UID write access during a narrow window. |
-| No execution timeout | Low | **Not mitigated** | A hanging hook blocks the create command indefinitely. There is no watchdog or deadline. This is a denial-of-service against the operator, not a privilege escalation. |
-| Parent environment inheritance | Low | **Not mitigated** | The hook inherits `os.Environ()`, which may include `DYLD_INSERT_LIBRARIES` or other variables that alter dynamic linker behavior. On macOS with hardened runtime this is typically neutralized, but hooks built without hardened runtime could be affected. |
-| Hook binary integrity | Informational | **Not mitigated** | No code-signing or hash verification is performed on the hook binary. The trust model is that the user who supplies `-post-hook` is trusted — the same user who has physical access to Touch ID. |
-| Non-atomic provisioning | Informational | **By design** | If the hook fails (e.g., GitHub API error), the key exists locally but is not registered remotely. The user must re-run the hook or register the key manually. This is documented in `docs/hooks.md`. |
-| Public key metadata in env | Informational | **Acceptable** | The hook receives the public key, label, and `.pub` file path. Public keys are public by design; the file path reveals `$HOME` structure, which is already known to same-UID processes. |
+| Threat | Status | Notes |
+|--------|--------|-------|
+| Shell injection via hook path | Mitigated | `exec.Command(hookCmd)` runs the binary directly; no shell interprets the path, so pipes, redirects, and inline shell syntax are inert. |
+| Shell metacharacters in label | Partial | `validateLabel` rejects colons, path separators, and labels over 64 chars, but allows `$`, backticks, `()`, and semicolons. Harmless in the env-var transport (no shell expansion), but a hook that uses unquoted `$TOUCHID_AGENT_LABEL` in a shell expression could evaluate them. The `contrib/hooks/` examples are safe. |
+| TOCTOU on hook binary | Not mitigated | Between `-post-hook PATH` being specified and the hook executing, a same-UID attacker with write access to the path could swap the binary — a narrow window. |
+| No execution timeout | Not mitigated | A hanging hook blocks the create command indefinitely (no watchdog). This is a DoS against the operator, not privilege escalation. |
+| Parent environment inheritance | Not mitigated | The hook inherits `os.Environ()`, which may include `DYLD_INSERT_LIBRARIES` etc. Typically neutralized under the hardened runtime, but a hook built without it could be affected. |
+| Hook binary integrity | Not mitigated | The hook binary is not code-signing/hash verified. The trust model is that whoever supplies `-post-hook` is trusted — the same user with physical Touch ID access. |
+| Non-atomic provisioning | By design | If the hook fails (e.g. a GitHub API error) the key exists locally but is not registered remotely; the user re-runs the hook or registers manually. See [docs/hooks.md](hooks.md). |
+| Public key metadata in env | Informational | The hook receives the public key, label, and `.pub` path. Public keys are public by design; the path reveals `$HOME` structure, already known to same-UID processes. |
 
 ### Recommendations for hook authors
 
@@ -149,7 +144,9 @@ environment.
 | Socket security | Owner-only permissions (0600), parent directory 0700. |
 | Signal handling | SIGTERM/SIGINT clean up the socket file. SIGHUP is handled without termination. |
 | Signing audit | Every signing operation is logged (JSON-lines) — by default to `~/Library/Logs/touchid-agent-audit.log`, or to the path given by `-audit-log` (`-` = stderr). Each record includes timestamp, key label, success/failure, peer PID, UID, and binary path. |
-| Caller verification | Enabled by default: the connecting process binary is validated against an allowlist before signing. Opt out with `-no-peer-check`. |
+| Caller verification | On by default. The connecting process is resolved race-free from the socket's audit token (`LOCAL_PEERTOKEN`, not `proc_pidpath(PID)`) and matched by code-signing identity via `SecCode`. Default policy: a genuine Apple OS binary (`anchor apple`) whose Signing ID is one of `com.apple.{ssh,scp,sftp,ssh-keygen}` — unforgeable and stronger than a path check. Extend with `-allowed-callers` rules (`team-id:`/`signing-id:`, honored only for Apple-anchored signatures; `cdhash:`; or `path:` as an unsigned escape hatch, flagged at startup), ideally from a root-owned / Managed Preferences file. Opt out with `-no-peer-check`. |
+| Hardened-runtime requirement | With `-require-hardened-callers`, an allowed caller must also run with the hardened runtime — a same-UID process cannot inject into it without root. |
+| Per-key caller binding | `-create … -key-callers RULES` restricts a specific key to named callers, so a compromised allowed caller cannot drive every key. |
 | Rate limiting | When `-rate-limit` is set, per-key signing frequency is bounded by a sliding window with a hard-coded ceiling of 120/min. |
 
 ## Code Signing
