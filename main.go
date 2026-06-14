@@ -88,7 +88,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
 		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l / -launchd) mode:\n")
-		fmt.Fprintf(os.Stderr, "  -audit-log PATH         append a JSON-lines record per signing operation\n")
+		fmt.Fprintf(os.Stderr, "  -audit-log PATH         JSON-lines record per signing operation\n")
+		fmt.Fprintf(os.Stderr, "                          (default: ~/Library/Logs/touchid-agent-audit.log; \"-\" = stderr)\n")
 		fmt.Fprintf(os.Stderr, "  -no-peer-check          disable peer binary verification (NOT recommended)\n")
 		fmt.Fprintf(os.Stderr, "  -rate-limit N           max signing operations per key per minute (ceiling: 120)\n")
 		fmt.Fprintf(os.Stderr, "  -allowed-callers PATH   path to file listing additional allowed caller binaries\n")
@@ -97,7 +98,7 @@ func main() {
 
 	socketPath := flag.String("l", "", "agent: path of the UNIX socket to listen on")
 	launchdMode := flag.Bool("launchd", false, "agent: obtain listener from launchd socket activation")
-	auditLogPath := flag.String("audit-log", "", "agent: path to JSON-lines audit log")
+	auditLogPath := flag.String("audit-log", "", "agent: path to JSON-lines audit log (default: ~/Library/Logs/touchid-agent-audit.log; \"-\" = stderr)")
 	noPeerCheck := flag.Bool("no-peer-check", false, "agent: disable peer binary verification (NOT recommended)")
 	peerCheckDeprecated := flag.Bool("peer-check", false, "agent: deprecated no-op; peer verification is enabled by default")
 	rateLimit := flag.Int("rate-limit", 0, "agent: max signing operations per key per minute (0=off, ceiling=120)")
@@ -506,16 +507,33 @@ func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string
 
 	applyManagedOverrides(&auditLogPath, &peerCheck, &rateLimit, &allowedCallersFile)
 
+	// Audit logging is on by default: events go to a per-user file unless
+	// -audit-log gives another path. "-" opts back out to stderr (the
+	// launchd journal). A path the user/managed-pref set explicitly is
+	// fatal on failure; the implicit default falls back to stderr so a
+	// logging-path problem never blocks signing.
+	explicitAudit := auditLogPath != ""
+	if auditLogPath == "" {
+		auditLogPath = defaultAuditLogPath()
+	}
+
 	var audit *AuditLogger
-	if auditLogPath != "" {
-		var err error
-		audit, err = NewAuditLogger(auditLogPath)
-		if err != nil {
-			log.Fatalf("Failed to open audit log: %v\n", err)
-		}
-		log.Printf("Audit log enabled: %s", auditLogPath)
-	} else {
+	switch {
+	case auditLogPath == "-":
 		audit = NewStderrAuditLogger()
+		log.Println("Audit log: stderr (events go to the launchd journal)")
+	default:
+		a, err := NewAuditLogger(auditLogPath)
+		if err != nil {
+			if explicitAudit {
+				log.Fatalf("Failed to open audit log: %v\n", err)
+			}
+			log.Printf("WARNING: could not open default audit log %s (%v); falling back to stderr", auditLogPath, err)
+			audit = NewStderrAuditLogger()
+		} else {
+			audit = a
+			log.Printf("Audit log enabled: %s", auditLogPath)
+		}
 	}
 
 	var extraCallers []string

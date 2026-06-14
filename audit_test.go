@@ -182,6 +182,24 @@ func TestAuditLogger_OpenFailsForUnwritablePath(t *testing.T) {
 	}
 }
 
+func TestAuditLogger_CreatesParentDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs", "nested")
+	path := filepath.Join(dir, "audit.log")
+	a, err := NewAuditLogger(path)
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+	defer a.Close()
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("parent dir not created: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("audit dir perm = %o, want 0700", perm)
+	}
+}
+
 func TestAgent_AuditLog_OnSignSuccess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 	audit, err := NewAuditLogger(path)

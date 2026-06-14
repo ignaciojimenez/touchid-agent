@@ -66,7 +66,7 @@ to dump that contains key material.
 | Connection timeouts | Idle connections are closed after 10 minutes to prevent FD exhaustion. |
 | Peer binary verification (on by default) | The binary path of the connecting process is resolved via `proc_pidpath(3)` and checked against an allowlist before signing. The default allowlist is Apple's `/usr/bin/{ssh,scp,sftp,ssh-keygen}` — not user-writable without root (`ssh-keygen` is included because git SSH signing connects as it). Unknown processes are rejected. Disable with `-no-peer-check`; extend with `-allowed-callers`. Symlinks in the allowlist are resolved at check time so explicitly configured paths match correctly. |
 | Rate limiting (`-rate-limit N`) | Signing operations are limited per key per minute using a sliding window. The ceiling is hard-coded at 120/min and cannot be overridden by configuration. |
-| Default signing audit | When no `-audit-log` path is provided, signing events are emitted as JSON to stderr so they appear in the launchd log. |
+| Default signing audit | Audit logging is on by default: with no `-audit-log` path, signing events are written as JSON-lines to `~/Library/Logs/touchid-agent-audit.log` (file 0600, parent dir 0700, both auto-created). `-audit-log -` opts back out to stderr (the launchd log). |
 
 ### Denial of Service
 
@@ -148,7 +148,7 @@ environment.
 | Keystore directory security | `~/.touchid-agent/keys/` is created and enforced at mode 0700; the agent refuses to start if `chmod` fails, preventing operation with insecure key storage. |
 | Socket security | Owner-only permissions (0600), parent directory 0700. |
 | Signal handling | SIGTERM/SIGINT clean up the socket file. SIGHUP is handled without termination. |
-| Signing audit | Every signing operation is logged (JSON-lines) — to the file specified by `-audit-log`, or to stderr by default. Each record includes timestamp, key label, success/failure, peer PID, UID, and binary path. |
+| Signing audit | Every signing operation is logged (JSON-lines) — by default to `~/Library/Logs/touchid-agent-audit.log`, or to the path given by `-audit-log` (`-` = stderr). Each record includes timestamp, key label, success/failure, peer PID, UID, and binary path. |
 | Caller verification | Enabled by default: the connecting process binary is validated against an allowlist before signing. Opt out with `-no-peer-check`. |
 | Rate limiting | When `-rate-limit` is set, per-key signing frequency is bounded by a sliding window with a hard-coded ceiling of 120/min. |
 
@@ -190,10 +190,11 @@ expose an attestation chain for SE keys on macOS (iOS has
    Homebrew tap, MDM-pushed package). Verify the notarization signature:
    `codesign -dv --verbose=4 /path/to/touchid-agent`. The expected
    `Authority=` chain ends in `Apple Root CA`.
-3. **Audit log signing events** and ship the log to a SIEM. Signing
-   events are emitted to stderr by default (visible in `log show` and
-   the launchd journal); for structured retention use `-audit-log PATH`.
-   Each record includes the peer process path for attribution.
+3. **Audit log signing events** and ship the log to a SIEM. Audit
+   logging is on by default to `~/Library/Logs/touchid-agent-audit.log`;
+   point it elsewhere with `-audit-log PATH` (or `-audit-log -` for
+   stderr / the launchd journal). Each record includes the peer process
+   path for attribution.
 4. **Keep caller verification on.** Peer verification is enabled by
    default: signing is restricted to the allowlist (`/usr/bin/ssh`,
    `/usr/bin/scp`, `/usr/bin/sftp`, `/usr/bin/ssh-keygen`). Do **not**

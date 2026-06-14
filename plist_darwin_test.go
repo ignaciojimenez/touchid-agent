@@ -9,6 +9,13 @@ import (
 	"testing"
 )
 
+func TestDefaultAuditLogPath(t *testing.T) {
+	t.Setenv("HOME", "/Users/test")
+	if got, want := defaultAuditLogPath(), "/Users/test/Library/Logs/touchid-agent-audit.log"; got != want {
+		t.Errorf("defaultAuditLogPath() = %q, want %q", got, want)
+	}
+}
+
 const oldStylePlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
