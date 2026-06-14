@@ -26,10 +26,11 @@ Upload to GitHub on creation:
 touchid-agent -create ssh -post-hook contrib/hooks/github-upload.sh
 ```
 
-Configure git signing and upload the signing key:
+Configure git signing and upload the signing key (touch-required, so each
+signature is an explicit human approval):
 
 ```bash
-touchid-agent -create git -no-touch -post-hook contrib/hooks/github-signing.sh
+touchid-agent -create sign -post-hook contrib/hooks/github-signing.sh
 ```
 
 Write your own hook for any provisioning system -- LDAP, Vault, SCIM, or a

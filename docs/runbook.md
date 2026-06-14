@@ -57,9 +57,9 @@ There is no platform-level event for Touch ID lockout. Indirect signals:
 - A burst of `signing failed` lines around the same timestamp.
 - User reports of repeated Touch ID prompts that do not accept a touch.
 
-If you operate the audit log (`-audit-log` flag), filter for
-`"event":"sign"` records with `"success":false` and `"reason":` matching
-biometry failures.
+The audit log is on by default at `~/Library/Logs/touchid-agent-audit.log`
+(override with `-audit-log`). Filter for `"event":"sign"` records with
+`"success":false` and an `"error"` field mentioning biometry.
 
 ### Break-glass: a `-no-touch` key
 
