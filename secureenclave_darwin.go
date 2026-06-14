@@ -26,6 +26,10 @@ import (
 type Key struct {
 	Label        string
 	RequireTouch bool
+	// CallerRules, when non-empty, restricts which callers may use this
+	// specific key (in addition to the global peer policy). Empty means any
+	// caller allowed by the global policy may use it.
+	CallerRules  []CallerRule
 	publicKey    *ecdsa.PublicKey
 	keyData      []byte
 	signFn       func(label string, digest []byte) ([]byte, error)

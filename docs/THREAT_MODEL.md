@@ -214,7 +214,12 @@ expose an attestation chain for SE keys on macOS (iOS has
    keys for anything where the rate limit alone is insufficient.
 6. **Treat each key as scoped.** Use distinct labels for different
    privilege boundaries (`ssh-prod`, `git-signing`, `ssh-staging`) so a
-   compromised endpoint can be narrowed down by which key was used.
+   compromised endpoint can be narrowed down by which key was used. Bind a
+   key to the specific caller(s) that should use it at creation time with
+   `-key-callers` (e.g. `touchid-agent -create git-signing -key-callers
+   signing-id:com.apple.ssh-keygen`); a caller must then satisfy both the
+   global policy and the key's own rules, so a compromised allowed caller
+   cannot drive *every* key.
 
 ### What attestation would buy you
 

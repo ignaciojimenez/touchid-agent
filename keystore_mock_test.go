@@ -30,7 +30,7 @@ func (m *MockKeyStore) List() ([]*Key, error) {
 	return result, nil
 }
 
-func (m *MockKeyStore) Generate(label string, requireTouch bool) (*Key, error) {
+func (m *MockKeyStore) Generate(label string, requireTouch bool, callerRules ...CallerRule) (*Key, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -46,6 +46,7 @@ func (m *MockKeyStore) Generate(label string, requireTouch bool) (*Key, error) {
 	key := &Key{
 		Label:        label,
 		RequireTouch: requireTouch,
+		CallerRules:  callerRules,
 		publicKey:    &priv.PublicKey,
 		signFn: func(_ string, digest []byte) ([]byte, error) {
 			return ecdsa.SignASN1(rand.Reader, priv, digest)
