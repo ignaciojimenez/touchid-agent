@@ -89,7 +89,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
 		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l / -launchd) mode:\n")
 		fmt.Fprintf(os.Stderr, "  -audit-log PATH         append a JSON-lines record per signing operation\n")
-		fmt.Fprintf(os.Stderr, "  -peer-check             verify peer binary against allowlist for signing requests\n")
+		fmt.Fprintf(os.Stderr, "  -no-peer-check          disable peer binary verification (NOT recommended)\n")
 		fmt.Fprintf(os.Stderr, "  -rate-limit N           max signing operations per key per minute (ceiling: 120)\n")
 		fmt.Fprintf(os.Stderr, "  -allowed-callers PATH   path to file listing additional allowed caller binaries\n")
 		fmt.Fprintf(os.Stderr, "  -v                      enable verbose debug logging on stderr\n\n")
@@ -98,7 +98,8 @@ func main() {
 	socketPath := flag.String("l", "", "agent: path of the UNIX socket to listen on")
 	launchdMode := flag.Bool("launchd", false, "agent: obtain listener from launchd socket activation")
 	auditLogPath := flag.String("audit-log", "", "agent: path to JSON-lines audit log")
-	peerCheck := flag.Bool("peer-check", false, "agent: verify peer binary against allowlist for signing requests")
+	noPeerCheck := flag.Bool("no-peer-check", false, "agent: disable peer binary verification (NOT recommended)")
+	peerCheckDeprecated := flag.Bool("peer-check", false, "agent: deprecated no-op; peer verification is enabled by default")
 	rateLimit := flag.Int("rate-limit", 0, "agent: max signing operations per key per minute (0=off, ceiling=120)")
 	allowedCallersFile := flag.String("allowed-callers", "", "agent: path to file listing additional allowed caller binaries")
 	createKey := flag.String("create", "", "create a new key with the given label")
@@ -133,6 +134,14 @@ func main() {
 	log.SetFlags(0)
 	if *verbose {
 		debugLogger = log.New(os.Stderr, "debug: ", log.Ltime)
+	}
+
+	// Peer verification is on by default (opt-out). -peer-check is kept as
+	// a deprecated no-op so existing plists keep parsing; -no-peer-check
+	// disables verification. A managed preference can still force either.
+	peerCheck := !*noPeerCheck
+	if *peerCheckDeprecated {
+		log.Println("Note: -peer-check is deprecated and has no effect; peer verification is enabled by default. Use -no-peer-check to disable it.")
 	}
 
 	// Plist subcommands do not need a key store and may run before the
@@ -192,9 +201,9 @@ func main() {
 		}
 		cmdDeleteAll(store, labels)
 	case *launchdMode:
-		cmdRun(store, "", true, *auditLogPath, *peerCheck, *rateLimit, *allowedCallersFile)
+		cmdRun(store, "", true, *auditLogPath, peerCheck, *rateLimit, *allowedCallersFile)
 	case *socketPath != "":
-		cmdRun(store, *socketPath, false, *auditLogPath, *peerCheck, *rateLimit, *allowedCallersFile)
+		cmdRun(store, *socketPath, false, *auditLogPath, peerCheck, *rateLimit, *allowedCallersFile)
 	default:
 		flag.Usage()
 		os.Exit(1)
@@ -520,6 +529,8 @@ func cmdRun(store KeyStore, socketPath string, launchd bool, auditLogPath string
 	policy := NewPeerPolicy(peerCheck, rateLimit, extraCallers)
 	if peerCheck {
 		log.Printf("Peer verification enabled (%d allowed caller paths)", len(policy.allowedPaths))
+	} else {
+		log.Println("WARNING: peer verification is DISABLED (-no-peer-check). Any process running as your user can request signatures from this agent without an allowlist check. This is not recommended.")
 	}
 	if rateLimit > 0 {
 		log.Printf("Rate limiting enabled: %d/min per key (ceiling: %d)", policy.rateLimit, rateLimitCeiling)

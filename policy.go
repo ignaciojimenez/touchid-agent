@@ -14,10 +14,17 @@ import (
 
 const rateLimitCeiling = 120
 
+// defaultAllowedCallers is the system-only allowlist enforced when peer
+// verification is on (the default). Entries are Apple-shipped binaries
+// under /usr/bin, which is not user-writable without root. ssh-keygen is
+// included because git SSH commit/tag signing connects to the agent as
+// ssh-keygen, not ssh. User-writable locations (Homebrew, /usr/local) are
+// deliberately excluded; add them explicitly via -allowed-callers if needed.
 var defaultAllowedCallers = []string{
 	"/usr/bin/ssh",
 	"/usr/bin/scp",
 	"/usr/bin/sftp",
+	"/usr/bin/ssh-keygen",
 }
 
 // PeerPolicy enforces caller verification and rate limiting on signing
