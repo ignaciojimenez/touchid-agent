@@ -53,6 +53,12 @@ type signEvent struct {
 	PeerPID   int    `json:"peer_pid,omitempty"`
 	PeerUID   uint32 `json:"peer_uid,omitempty"`
 	PeerPath  string `json:"peer_path,omitempty"`
+
+	// Code-signing identity of the caller, resolved from the audit token.
+	PeerTeamID    string `json:"peer_team_id,omitempty"`
+	PeerSigningID string `json:"peer_signing_id,omitempty"`
+	PeerCDHash    string `json:"peer_cdhash,omitempty"`
+	PeerSigned    bool   `json:"peer_signed,omitempty"`
 }
 
 func (a *AuditLogger) Sign(label string, success bool, err error, peer Peer) {
@@ -60,13 +66,17 @@ func (a *AuditLogger) Sign(label string, success bool, err error, peer Peer) {
 		return
 	}
 	rec := signEvent{
-		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-		Event:     eventSign,
-		Label:     label,
-		Success:   success,
-		PeerPID:   peer.PID,
-		PeerUID:   peer.UID,
-		PeerPath:  peer.Path,
+		Timestamp:     time.Now().UTC().Format(time.RFC3339Nano),
+		Event:         eventSign,
+		Label:         label,
+		Success:       success,
+		PeerPID:       peer.PID,
+		PeerUID:       peer.UID,
+		PeerPath:      peer.Path,
+		PeerTeamID:    peer.TeamID,
+		PeerSigningID: peer.SigningID,
+		PeerCDHash:    peer.CDHash,
+		PeerSigned:    peer.Signed,
 	}
 	if err != nil {
 		rec.Error = err.Error()

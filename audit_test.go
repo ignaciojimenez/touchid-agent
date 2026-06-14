@@ -118,6 +118,49 @@ func TestAuditLogger_OmitsZeroPeerFields(t *testing.T) {
 	}
 }
 
+func TestAuditLogger_WritesCallerIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	a, _ := NewAuditLogger(path)
+	a.Sign("sign", true, nil, Peer{
+		PID: 5, UID: 501, Path: "/usr/bin/ssh-keygen",
+		TeamID: "ABC1234567", SigningID: "com.apple.ssh-keygen",
+		CDHash: "deadbeef", Signed: true,
+	})
+	a.Close()
+
+	rec := map[string]any{}
+	if err := json.Unmarshal([]byte(readLines(t, path)[0]), &rec); err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]any{
+		"peer_team_id":    "ABC1234567",
+		"peer_signing_id": "com.apple.ssh-keygen",
+		"peer_cdhash":     "deadbeef",
+		"peer_signed":     true,
+	} {
+		if rec[k] != want {
+			t.Errorf("%s = %v, want %v", k, rec[k], want)
+		}
+	}
+}
+
+func TestAuditLogger_OmitsZeroCallerIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	a, _ := NewAuditLogger(path)
+	a.Sign("ssh", true, nil, Peer{PID: 5, UID: 501, Path: "/usr/bin/ssh"})
+	a.Close()
+
+	rec := map[string]any{}
+	if err := json.Unmarshal([]byte(readLines(t, path)[0]), &rec); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"peer_team_id", "peer_signing_id", "peer_cdhash", "peer_signed"} {
+		if _, ok := rec[k]; ok {
+			t.Errorf("empty %s should be omitted, got %v", k, rec[k])
+		}
+	}
+}
+
 func TestAuditLogger_AppendsToExistingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 	a, _ := NewAuditLogger(path)
