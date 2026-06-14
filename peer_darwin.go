@@ -21,6 +21,13 @@ type Peer struct {
 	PID  int
 	UID  uint32
 	Path string
+
+	// Code-signing identity, resolved race-free from the connection's
+	// audit token (see codesign_darwin.go). Empty for unsigned callers.
+	TeamID    string
+	SigningID string
+	CDHash    string
+	Signed    bool
 }
 
 // peerCreds returns the PID, UID, and binary path of the process on
@@ -44,8 +51,20 @@ func peerCreds(c net.Conn) Peer {
 		if cred, err := unix.GetsockoptXucred(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERCRED); err == nil {
 			p.UID = cred.Uid
 		}
+		if id, ok := resolveCallerIdentity(fd); ok {
+			p.TeamID = id.TeamID
+			p.SigningID = id.SigningID
+			p.CDHash = id.CDHash
+			p.Signed = id.Signed
+			// The audit token identifies the actual connected process, so
+			// its main-executable path is not subject to the PID-reuse /
+			// TOCTOU race that proc_pidpath(PID) is. Prefer it.
+			p.Path = id.Path
+		}
 	})
-	if p.PID > 0 {
+	// Fall back to PID-based path resolution only when the audit token
+	// could not yield one (e.g. unusual callers, older systems).
+	if p.Path == "" && p.PID > 0 {
 		p.Path = procPidPath(p.PID)
 	}
 	return p
