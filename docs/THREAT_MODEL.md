@@ -39,7 +39,7 @@ key itself.
 |---------|--------|
 | Private key extraction | **Mitigated.** The SEP-wrapped blob on disk is non-extractable; the actual private key never leaves SEP hardware. |
 | Silent signing (Touch ID-gated key) | **Mitigated.** Each signing operation requires biometric confirmation enforced by the SEP. |
-| Silent signing (no-touch key) | **Partially mitigated.** By default, a macOS notification is shown on every signing event. Peer verification is **on by default**: only binaries in the allowlist (default: Apple's `/usr/bin/{ssh,scp,sftp,ssh-keygen}`) can trigger a signing request; unknown processes are rejected. It can be disabled with `-no-peer-check` or extended with `-allowed-callers`. With `-rate-limit`, signing frequency per key is capped (hard ceiling: 120/min). A sufficiently capable same-UID attacker who can inject into an allowed process or modify the launchd plist can still bypass these controls; Touch ID remains the only hardware-enforced guarantee. |
+| Silent signing (no-touch key) | **Partially mitigated.** By default, a macOS notification is shown on every signing event. Peer verification is **on by default**: only genuine Apple OS SSH binaries (validated `anchor apple` + `com.apple.{ssh,scp,sftp,ssh-keygen}` Signing ID) can trigger a signing request; everything else is rejected. It can be disabled with `-no-peer-check` or extended with `-allowed-callers` identity rules. With `-rate-limit`, signing frequency per key is capped (hard ceiling: 120/min). A sufficiently capable same-UID attacker who can inject into an allowed process or modify the launchd plist can still bypass these controls; Touch ID remains the only hardware-enforced guarantee. |
 | Agent socket impersonation | **Partially mitigated.** Socket is 0600, directory 0700. Malware could manipulate `SSH_AUTH_SOCK`. |
 
 ### Root Compromise
@@ -64,7 +64,7 @@ to dump that contains key material.
 | Socket permissions | Created with mode 0600 (owner-only). |
 | Socket directory | Created with mode 0700. |
 | Connection timeouts | Idle connections are closed after 10 minutes to prevent FD exhaustion. |
-| Peer binary verification (on by default) | The connecting process is resolved **race-free from the socket's audit token** (`LOCAL_PEERTOKEN`), not `proc_pidpath(PID)` — closing the PID-reuse / TOCTOU window. Its main-executable path is checked against an allowlist before signing; default is Apple's `/usr/bin/{ssh,scp,sftp,ssh-keygen}` — not user-writable without root (`ssh-keygen` is included because git SSH signing connects as it). The caller's code-signing identity (Team ID, Signing ID, CDHash, signature validity) is also resolved via `SecCode` and recorded in the audit log. Unknown processes are rejected. Disable with `-no-peer-check`; extend with `-allowed-callers`. Symlinks in the allowlist are resolved at check time so explicitly configured paths match correctly. |
+| Peer caller verification (on by default) | The connecting process is resolved **race-free from the socket's audit token** (`LOCAL_PEERTOKEN`), not `proc_pidpath(PID)` — closing the PID-reuse / TOCTOU window — and its **code-signing identity** is evaluated via `SecCode`. By default a caller is allowed only if it is a genuine Apple OS binary (validates against `anchor apple`) whose Signing ID is one of `com.apple.{ssh,scp,sftp,ssh-keygen}`. This cannot be satisfied by third-party code and is stronger than a path check (an Apple platform signature can't be forged). Additional callers are added via `-allowed-callers` rules — `team-id:` / `signing-id:` (honored only for Apple-anchored signatures, so a self-signed binary can't claim them), `cdhash:` (exact binary), or `path:` (escape hatch for unsigned/ad-hoc binaries, surfaced with a startup warning). For the identity rules to be tamper-resistant the rules file must live where the authorized caller cannot rewrite it (root-owned / Managed Preferences). Disable with `-no-peer-check`. Caller identity is recorded in the audit log. |
 | Rate limiting (`-rate-limit N`) | Signing operations are limited per key per minute using a sliding window. The ceiling is hard-coded at 120/min and cannot be overridden by configuration. |
 | Default signing audit | Audit logging is on by default: with no `-audit-log` path, signing events are written as JSON-lines to `~/Library/Logs/touchid-agent-audit.log` (file 0600, parent dir 0700, both auto-created). `-audit-log -` opts back out to stderr (the launchd log). |
 
@@ -196,11 +196,14 @@ expose an attestation chain for SE keys on macOS (iOS has
    stderr / the launchd journal). Each record includes the peer process
    path for attribution.
 4. **Keep caller verification on.** Peer verification is enabled by
-   default: signing is restricted to the allowlist (`/usr/bin/ssh`,
-   `/usr/bin/scp`, `/usr/bin/sftp`, `/usr/bin/ssh-keygen`). Do **not**
+   default: signing is restricted to genuine Apple OS SSH binaries
+   (`anchor apple` + `com.apple.{ssh,scp,sftp,ssh-keygen}`). Do **not**
    pass `-no-peer-check` on managed endpoints. Add organisation-specific
-   SSH clients via `-allowed-callers PATH`, and pin the flag fleet-wide
-   through the `peer_check` Managed Preference.
+   clients via `-allowed-callers` rules — prefer `team-id:`/`signing-id:`
+   (your own Developer ID is ideal and self-maintaining) over `path:`.
+   **Deliver the rules file from a root-owned path or Managed Preferences**
+   so the authorized caller cannot rewrite its own rule, and pin the flag
+   fleet-wide through the `peer_check` Managed Preference.
 5. **Enable rate limiting.** Add `-rate-limit 60` (or lower) for keys
    that are not expected to sign at high frequency. Use Touch ID-gated
    keys for anything where the rate limit alone is insufficient.

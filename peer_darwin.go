@@ -24,10 +24,12 @@ type Peer struct {
 
 	// Code-signing identity, resolved race-free from the connection's
 	// audit token (see codesign_darwin.go). Empty for unsigned callers.
-	TeamID    string
-	SigningID string
-	CDHash    string
-	Signed    bool
+	TeamID        string
+	SigningID     string
+	CDHash        string
+	Signed        bool
+	ApplePlatform bool // validates against "anchor apple" (genuine Apple OS binary)
+	AppleAnchored bool // validates against "anchor apple generic" (Apple-issued chain)
 }
 
 // peerCreds returns the PID, UID, and binary path of the process on
@@ -56,6 +58,8 @@ func peerCreds(c net.Conn) Peer {
 			p.SigningID = id.SigningID
 			p.CDHash = id.CDHash
 			p.Signed = id.Signed
+			p.ApplePlatform = id.ApplePlatform
+			p.AppleAnchored = id.AppleAnchored
 			// The audit token identifies the actual connected process, so
 			// its main-executable path is not subject to the PID-reuse /
 			// TOCTOU race that proc_pidpath(PID) is. Prefer it.
