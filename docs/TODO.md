@@ -2,10 +2,12 @@
 
 ## Next
 
-- [ ] Tamper-evident / forward-secure audit logging — issue
-      [#19](https://github.com/ignaciojimenez/touchid-agent/issues/19).
-      Start with Phase 1 (per-record hash chain + `-verify-audit`); then
-      forward-secure sealing (journald-FSS style); then off-host shipping.
+- [ ] Audit logging — document SIEM / off-host shipping as the durable
+      tamper-resistance path (issue
+      [#19](https://github.com/ignaciojimenez/touchid-agent/issues/19); the
+      hash chain + `-verify-audit` shipped in v0.9.0). Forward-secure
+      sealing is deferred, and the macOS unified log was evaluated and
+      deliberately not used (lossy diagnostics, not an audit store).
 - [ ] Distribution roadmap Track #2 §4 — `docs/deployment.md` after the
       first Munki pilot run.
 - [ ] Distribution roadmap Track #3 — enrollment + inventory. v1 target
@@ -26,6 +28,8 @@
 
 ## Done
 
+- [x] **v0.9.0** — Tamper-evident audit logging (#19 Phase 1): per-record
+      hash chain (`seq` + `prev`, on by default) + `-verify-audit`.
 - [x] **v0.8.0** — Trustworthy caller verification (issue #17): audit-token
       resolution + code-signing identity, default Apple-only by signature,
       `team-id:`/`signing-id:`/`cdhash:`/`path:` rules, MDM/root-anchored;
