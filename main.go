@@ -87,6 +87,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "        Bootstrap helper invoked by the system-wide pkg's LaunchAgent.\n")
 		fmt.Fprintf(os.Stderr, "        Equivalent to -install-plist but never errors out, so the\n")
 		fmt.Fprintf(os.Stderr, "        bootstrap plist can fire on every login without spamming logs.\n\n")
+		fmt.Fprintf(os.Stderr, "  touchid-agent -verify-audit [-audit-log PATH]\n")
+		fmt.Fprintf(os.Stderr, "        Verify the audit log hash chain. Exits non-zero if tampered.\n\n")
 		fmt.Fprintf(os.Stderr, "  touchid-agent -version\n")
 		fmt.Fprintf(os.Stderr, "        Print version and exit.\n\n")
 		fmt.Fprintf(os.Stderr, "Optional flags for the agent (-l / -launchd) mode:\n")
@@ -118,6 +120,7 @@ func main() {
 	deleteAll := flag.Bool("delete-all", false, "delete all managed keys")
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	verifyAudit := flag.Bool("verify-audit", false, "verify the audit log hash chain and exit (uses -audit-log path or the default)")
 	installPlist := flag.Bool("install-plist", false, "write launchd plist (socket activation) and load it")
 	migratePlist := flag.Bool("migrate-plist", false, "rewrite an existing -l-mode plist to socket activation")
 	ensureUserPlist := flag.Bool("ensure-user-plist", false, "bootstrap helper: idempotently install the per-user plist (used by the system-wide pkg)")
@@ -162,6 +165,14 @@ func main() {
 	}
 	if *ensureUserPlist {
 		cmdEnsureUserPlist()
+		return
+	}
+	if *verifyAudit {
+		path := *auditLogPath
+		if path == "" || path == "-" {
+			path = defaultAuditLogPath()
+		}
+		cmdVerifyAudit(path)
 		return
 	}
 
@@ -457,6 +468,21 @@ func cmdDeleteAll(store KeyStore, labels []string) {
 		removePubKeyFile(label)
 	}
 	fmt.Println("All keys deleted.")
+}
+
+func cmdVerifyAudit(path string) {
+	res, err := VerifyAuditChain(path)
+	if err != nil {
+		log.Fatalf("verify-audit: %v\n", err)
+	}
+	if res.OK {
+		fmt.Printf("audit log OK: %s — %d record(s), %d chain-protected, chain intact\n",
+			path, res.Records, res.Chained)
+		return
+	}
+	fmt.Printf("audit log TAMPERED: %s — chain broke at line %d: %s\n",
+		path, res.BrokenLine, res.Reason)
+	os.Exit(1)
 }
 
 func cmdStatus(socketPath string) {

@@ -8,11 +8,95 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
 )
+
+func TestVerifyAuditChain_Intact(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	a, _ := NewAuditLogger(path)
+	for i := 0; i < 3; i++ {
+		a.Sign("k", true, nil, Peer{PID: i + 1, Path: "/usr/bin/ssh"})
+	}
+	a.Close()
+
+	res, err := VerifyAuditChain(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || res.Records != 3 || res.Chained != 3 {
+		t.Fatalf("intact chain: got %+v, want OK with 3 records/chained", res)
+	}
+}
+
+func TestVerifyAuditChain_DetectsTampering(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	a, _ := NewAuditLogger(path)
+	for i := 0; i < 3; i++ {
+		a.Sign("k", true, nil, Peer{PID: i + 1, Path: "/usr/bin/ssh"})
+	}
+	a.Close()
+
+	// Edit the first record; the next record's prev no longer matches.
+	lines := readLines(t, path)
+	lines[0] = strings.Replace(lines[0], "/usr/bin/ssh", "/usr/bin/evil", 1)
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, _ := VerifyAuditChain(path)
+	if res.OK {
+		t.Fatal("tampered chain should not verify")
+	}
+	if res.BrokenLine != 2 {
+		t.Errorf("BrokenLine = %d, want 2", res.BrokenLine)
+	}
+}
+
+func TestVerifyAuditChain_DetectsDeletion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	a, _ := NewAuditLogger(path)
+	for i := 0; i < 4; i++ {
+		a.Sign("k", true, nil, Peer{PID: i + 1})
+	}
+	a.Close()
+
+	// Remove the second record.
+	lines := readLines(t, path)
+	kept := append([]string{lines[0]}, lines[2:]...)
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, _ := VerifyAuditChain(path)
+	if res.OK {
+		t.Fatal("deleted record should be detected")
+	}
+}
+
+func TestVerifyAuditChain_AcrossRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	a, _ := NewAuditLogger(path)
+	a.Sign("k", true, nil, Peer{PID: 1})
+	a.Sign("k", true, nil, Peer{PID: 2})
+	a.Close()
+
+	// New logger reopens the file and must continue the chain seamlessly.
+	b, err := NewAuditLogger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Sign("k", true, nil, Peer{PID: 3})
+	b.Close()
+
+	res, _ := VerifyAuditChain(path)
+	if !res.OK || res.Chained != 3 {
+		t.Fatalf("chain across restart: got %+v, want OK with 3 chained", res)
+	}
+}
 
 func sshPubFromKey(t *testing.T, k *Key) ssh.PublicKey {
 	t.Helper()
