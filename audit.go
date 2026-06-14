@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -21,6 +22,11 @@ type AuditLogger struct {
 }
 
 func NewAuditLogger(path string) (*AuditLogger, error) {
+	if dir := filepath.Dir(path); dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("create audit log dir %s: %w", dir, err)
+		}
+	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open audit log %s: %w", path, err)

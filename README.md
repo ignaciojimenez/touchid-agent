@@ -8,7 +8,7 @@ same protocol, same key shape (ECDSA P-256), no dongle.
 * **Multiple named keys, per-key policy.** `ssh-prod` (touch-required), `ssh-ci` (no-touch, rate-limited), `git-signing` (touch). Lifts yubikey-agent's one-key limit.
 * **Hardware non-exportability.** Keys are generated inside the SEP and cannot be extracted. No file to steal, no memory to dump.
 * **Fleet-deployable.** Signed, notarized `.pkg` for MDM (Munki / Jamf / Kandji), with a configuration profile that pins agent flags via Managed Preferences.
-* **Auditable.** Every signing event emits a JSON record with timestamp, key label, peer PID/UID, and binary path — built to ship to a SIEM.
+* **Auditable by default.** Every signing event emits a JSON record (timestamp, key label, peer PID/UID, binary path) to `~/Library/Logs/touchid-agent-audit.log` out of the box — point it elsewhere with `-audit-log`, or ship it to a SIEM.
 * **Secure by default.** Peer verification is on by default: signing is gated to Apple's `/usr/bin` SSH binaries (`ssh`, `scp`, `sftp`, `ssh-keygen`), so same-UID malware can't drive the agent. Add trusted clients with `-allowed-callers`, or opt out with `-no-peer-check`. Per-key rate limiting bounds blast radius if an allowed caller is compromised.
 * **Hookable provisioning.** Post-create hooks register new keys with GitHub, an LDAP keyserver, or any HTTP endpoint — pubkey distribution without paste-and-pray. See [docs/hooks.md](docs/hooks.md).
 

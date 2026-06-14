@@ -26,6 +26,7 @@ const (
 	plistRelPath      = "Library/LaunchAgents/touchid-agent.plist"
 	socketRelPath     = "Library/Caches/touchid-agent/agent.sock"
 	logRelPath        = "Library/Logs/touchid-agent.log"
+	auditLogRelPath   = "Library/Logs/touchid-agent-audit.log"
 	plistSocketsKey   = "Listeners" // must match launchdSocketName
 	plistFileMode     = 0o644
 	plistBackupSuffix = ".bak-pre-migrate"
@@ -253,6 +254,10 @@ func defaultSocketPath() string { return filepath.Join(os.Getenv("HOME"), socket
 
 // defaultLogPath returns ~/Library/Logs/touchid-agent.log.
 func defaultLogPath() string { return filepath.Join(os.Getenv("HOME"), logRelPath) }
+
+// defaultAuditLogPath returns ~/Library/Logs/touchid-agent-audit.log, the
+// audit log used when -audit-log is not given.
+func defaultAuditLogPath() string { return filepath.Join(os.Getenv("HOME"), auditLogRelPath) }
 
 // resolveBinaryPath returns the path to use for ProgramArguments[0].
 // Prefers the existing plist's binary (so users on /opt/homebrew or
