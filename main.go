@@ -325,18 +325,57 @@ func selfTestKey(key *Key, requireTouch bool) error {
 	return nil
 }
 
+// classifySignError turns a Secure Enclave / LocalAuthentication failure into
+// an actionable message.
+//
+// CryptoKit surfaces these as NSError descriptions, e.g.
+//
+//	Error Domain=com.apple.LocalAuthentication Code=-2 "Canceled by user."
+//	Error Domain=NSOSStatusErrorDomain Code=-25308 "...unable to sign digest"
+//
+// so the domain+code form is what actually has to match. The bare-symbol
+// patterns are kept alongside it: they cost nothing and other layers phrase
+// these errors differently.
+//
+// Codes are from LAPublicDefines.h: -2 userCancel, -4 systemCancel,
+// -5 passcodeNotSet, -6 biometryNotAvailable, -7 biometryNotEnrolled,
+// -8 biometryLockout, -9 appCancel.
 func classifySignError(err error) error {
 	msg := err.Error()
+	la := strings.Contains(msg, "com.apple.LocalAuthentication")
+	has := func(subs ...string) bool {
+		for _, sub := range subs {
+			if strings.Contains(msg, sub) {
+				return true
+			}
+		}
+		return false
+	}
+	// laCode matches a LocalAuthentication error code exactly. The trailing
+	// space matters: without it "Code=-2" also matches "Code=-25308".
+	laCode := func(code string) bool { return la && strings.Contains(msg, "Code="+code+" ") }
+
 	switch {
-	case strings.Contains(msg, "userCancel") || strings.Contains(msg, "User cancel") || strings.Contains(msg, "LAError -2"):
-		return fmt.Errorf("touch ID authentication was cancelled; the key was created successfully but not verified — run -list to confirm")
-	case strings.Contains(msg, "biometryNotAvailable") || strings.Contains(msg, "LAError -6"):
+	// Checked first: "Code=-25308" contains "Code=-2" as a substring.
+	case has("errSecInteractionNotAllowed", "Code=-25308", "unable to sign digest"):
+		return fmt.Errorf("touch ID was unavailable — the Mac was locked when this signature was requested. Secure Enclave keys are created accessible-when-unlocked (kSecAttrAccessibleWhenUnlockedThisDeviceOnly), so signing needs an unlocked session; note that display sleep locks immediately if you have lock-on-sleep set. Unlock and retry — the key itself is fine: %w", err)
+	case laCode("-2") || has("userCancel", "User cancel", "LAError -2"):
+		return fmt.Errorf("touch ID authentication was cancelled: %w", err)
+	case laCode("-4") && has("Canceled by another authentication"):
+		return fmt.Errorf("touch ID was taken over by another authentication request before this one completed; retry: %w", err)
+	case laCode("-4") && has("System authentication is running"):
+		return fmt.Errorf("a system authentication (login, unlock or password prompt) was already using Touch ID; dismiss it and retry: %w", err)
+	case laCode("-4") || has("systemCancel"):
+		return fmt.Errorf("touch ID authentication was cancelled by the system; retry: %w", err)
+	case laCode("-9") || has("appCancel", "Invalidated by client"):
+		return fmt.Errorf("touch ID authentication was invalidated before it completed; retry: %w", err)
+	case has("biometryNotAvailable", "LAError -6"):
 		return fmt.Errorf("touch ID hardware is not available on this Mac; use -no-touch for a key without biometric confirmation")
-	case strings.Contains(msg, "biometryNotEnrolled") || strings.Contains(msg, "LAError -7"):
+	case has("biometryNotEnrolled", "LAError -7"):
 		return fmt.Errorf("no fingerprints enrolled in Touch ID; enroll in System Settings > Touch ID, then retry")
-	case strings.Contains(msg, "biometryLockout") || strings.Contains(msg, "LAError -8"):
+	case has("biometryLockout", "LAError -8"):
 		return fmt.Errorf("touch ID is locked out after too many failed attempts; unlock your Mac with your password to recover Touch ID, then retry — the key on disk is valid")
-	case strings.Contains(msg, "passcodeNotSet") || strings.Contains(msg, "LAError -4"):
+	case has("passcodeNotSet", "LAError -5"):
 		return fmt.Errorf("no system password set; Touch ID requires a login password — set one in System Settings > Users & Groups")
 	default:
 		return fmt.Errorf("sign: %w", err)
