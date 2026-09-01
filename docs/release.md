@@ -167,7 +167,15 @@ notarization is in place.
 
 ## Manual release (fallback)
 
-If GitHub Actions is unavailable:
+> **You almost certainly do not need this.** Pushing a `v*` tag already runs
+> the whole pipeline — see [Cutting a release](#cutting-a-release). Running
+> `make release` after tagging duplicates work CI has done or is doing. Use
+> this path only when GitHub Actions is unavailable.
+
+`CODESIGN_IDENTITY` is required. Without it the Makefile falls back to
+ad-hoc signing (`CODESIGN_IDENTITY ?= -`), and `make package` aborts with
+`error: binary is ad-hoc signed; notarization will reject it` after the
+universal build has already run.
 
 ```bash
 make release \
