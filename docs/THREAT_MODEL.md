@@ -73,7 +73,8 @@ The controls referenced in the notes are catalogued in [Security Properties](#se
 | Threat | Status | Notes |
 |--------|--------|-------|
 | Connection flood | Partial | Temporary accept errors back off; non-temporary errors crash-and-restart via launchd. |
-| Hung client holding the key mutex | Mitigated | Idle connections are closed after 10 minutes. |
+| Hung client holding the key mutex | Partial | The 10-minute idle deadline is set when a request is read, so it bounds an idle connection but not a signature already in flight: a pending Touch ID prompt holds the key mutex until the user answers or the prompt dies. Prompt-raising signatures also serialize process-wide, so one unanswered prompt delays every other touch-required key. |
+| Biometric subsystem stops delivering match results | Not mitigated | A macOS-level fault (`biometrickitd` reports MATCH, `coreauthd` never receives it) leaves every prompt unanswerable. The agent cannot detect it — `canEvaluatePolicy` and the lockout state both report healthy throughout — so it only reports a run of non-completions and points at `launchctl kickstart -k system/com.apple.biometrickitd`. |
 
 ### Input validation
 

@@ -22,9 +22,24 @@ import (
 )
 
 type Agent struct {
-	storeMu  sync.RWMutex
-	store    KeyStore
-	keyMu    sync.Map // label -> *sync.Mutex
+	storeMu sync.RWMutex
+	store   KeyStore
+	keyMu   sync.Map // label -> *sync.Mutex
+
+	// biometricMu serializes every operation that raises a Touch ID prompt.
+	// Touch ID is a single hardware resource: two concurrent
+	// LocalAuthentication evaluations cancel each other, and the older one
+	// fails with LAError -4 ("Canceled by another authentication") even
+	// though the user did touch the sensor. keyMu alone does not prevent
+	// this, because two different keys take two different locks.
+	biometricMu sync.Mutex
+
+	// Consecutive prompt-raising signatures that never completed. See
+	// noteBiometricOutcome.
+	stallMu    sync.Mutex
+	stallCount int
+	stallStart time.Time
+
 	audit    *AuditLogger
 	policy   *PeerPolicy
 	notifyFn func(string)
@@ -211,11 +226,26 @@ func (a *Agent) signFor(key ssh.PublicKey, data []byte, peer Peer) (*ssh.Signatu
 		return nil, wrapped
 	}
 
+	// Serialize the biometric prompt itself. Keys that do not require touch
+	// never raise a prompt, so they must not queue behind one: taking this
+	// lock unconditionally would make -no-touch signing block on an
+	// unrelated Touch ID dialog.
+	if matched.RequireTouch {
+		a.biometricMu.Lock()
+		defer a.biometricMu.Unlock()
+	}
+
 	sig, err := signer.Sign(rand.Reader, data)
 	if err != nil {
+		if matched.RequireTouch {
+			a.noteBiometricOutcome(false, err)
+		}
 		wrapped := fmt.Errorf("sign with key %s: %w", matched.Label, classifySignError(err))
 		a.audit.Sign(matched.Label, false, wrapped, peer)
 		return nil, wrapped
+	}
+	if matched.RequireTouch {
+		a.noteBiometricOutcome(true, nil)
 	}
 	debugf("Sign: success for key %s", matched.Label)
 	a.audit.Sign(matched.Label, true, nil, peer)
@@ -253,4 +283,76 @@ func defaultNotify(message string) {
 	message = escapeForAppleScript(message)
 	script := fmt.Sprintf(`display notification "%s" with title "touchid-agent"`, message)
 	exec.Command("osascript", "-e", script).Run()
+}
+
+// Consecutive non-completions before the agent flags a possible subsystem
+// stall. Three is short enough to be useful mid-incident and long enough that
+// a user cancelling a couple of prompts by hand does not trip it.
+const (
+	biometricStallThreshold = 3
+	biometricStallWindow    = 3 * time.Minute
+)
+
+// isBiometricNonCompletion reports whether err means a Touch ID prompt was
+// raised but never resolved into a match: the user cancelled, the system
+// cancelled it, or the client invalidated it.
+//
+// Note this cannot distinguish a genuine user cancellation from a wedged
+// biometric subsystem — macOS reports both as LAError -2. That ambiguity is
+// why noteBiometricOutcome only ever advises.
+func isBiometricNonCompletion(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "com.apple.LocalAuthentication") {
+		return false
+	}
+	for _, code := range []string{"Code=-2", "Code=-4", "Code=-9"} {
+		if strings.Contains(msg, code) {
+			return true
+		}
+	}
+	return false
+}
+
+// noteBiometricOutcome tracks whether prompt-raising signatures are actually
+// completing. A short run of prompts that were shown and then died without a
+// match is the only signal available to the agent that the biometric
+// subsystem may have stopped delivering match results — the state where
+// biometrickitd logs MATCH but coreauthd never receives it.
+//
+// This is advisory only. It logs and notifies; it never refuses to sign.
+// LocalAuthentication reports the subsystem as healthy in exactly this state
+// (canEvaluatePolicy returns true, lockout state reads clean), so there is no
+// pre-flight check that could do better, and failing closed on a heuristic
+// would cost valid signatures.
+func (a *Agent) noteBiometricOutcome(completed bool, err error) {
+	a.stallMu.Lock()
+	defer a.stallMu.Unlock()
+
+	if completed {
+		a.stallCount = 0
+		return
+	}
+	if !isBiometricNonCompletion(err) {
+		return
+	}
+
+	now := time.Now()
+	if a.stallCount == 0 || now.Sub(a.stallStart) > biometricStallWindow {
+		a.stallCount = 1
+		a.stallStart = now
+		return
+	}
+	a.stallCount++
+	if a.stallCount != biometricStallThreshold {
+		return
+	}
+
+	log.Printf("WARNING: %d Touch ID prompts in a row were shown but never completed. "+
+		"If you are touching the sensor and nothing happens, the biometric subsystem may "+
+		"have stopped delivering match results. Recover with: "+
+		"sudo launchctl kickstart -k system/com.apple.biometrickitd", a.stallCount)
+	go a.notify("Touch ID prompts are not completing — the biometric subsystem may be stuck. See the agent log for how to recover.")
 }
