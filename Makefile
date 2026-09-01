@@ -199,11 +199,20 @@ test-cover: $(SWIFT_LIB)
 	go tool cover -html=coverage.out -o coverage.html
 
 # Scan for known-vulnerable dependencies. Mirrors what CI runs.
+# Pinned so scans are reproducible. Bump deliberately: govulncheck embeds a
+# golang.org/x/tools version, and one older than the local toolchain fails with
+# "uses version goX of the source-processing packages but runs version goY of
+# 'go list'". Upstream stopped tagging GitHub releases after v1.1.4, so check
+# the module proxy for what exists: go list -m -versions golang.org/x/vuln
+GOVULNCHECK_VERSION ?= v1.7.0
+
+# `go install` unconditionally: the previous "install only if missing" guard
+# meant an already-installed stale binary was never replaced, so the pin above
+# had no effect on a machine that had run this target before. It is a no-op
+# once the version is in the module cache.
 vuln:
 	@GOBIN="$$(go env GOPATH)/bin"; \
-	if [ ! -x "$$GOBIN/govulncheck" ]; then \
-	  go install golang.org/x/vuln/cmd/govulncheck@v1.1.4; \
-	fi; \
+	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION); \
 	"$$GOBIN/govulncheck" ./...
 
 clean-dist:

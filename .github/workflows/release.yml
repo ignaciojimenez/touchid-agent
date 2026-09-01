@@ -26,11 +26,11 @@ jobs:
       # On workflow_dispatch: use the version label from the input.
       VERSION: ${{ inputs.dry_run_version || github.ref_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # need full history for `git describe` and release notes
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           check-latest: false
@@ -197,7 +197,7 @@ jobs:
           echo "VERSION_BARE=${VERSION#v}" >> "$GITHUB_ENV"
 
       - name: Check out homebrew-tap
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: ignaciojimenez/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
