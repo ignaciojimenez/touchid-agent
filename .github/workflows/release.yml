@@ -11,8 +11,7 @@ on:
         required: true
         default: 'v0.0.0-dryrun'
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   release:
@@ -20,6 +19,8 @@ jobs:
     # silently change the toolchain or signing behaviour mid-release. Bump
     # explicitly when retesting on a newer macOS version.
     runs-on: macos-14
+    permissions:
+      contents: write
     timeout-minutes: 30
     env:
       # On tag push: github.ref_name is the tag (e.g. v0.4.0).
@@ -177,6 +178,8 @@ jobs:
     if: github.event_name == 'push'
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 5
     steps:
       - name: Wait for release assets to propagate
