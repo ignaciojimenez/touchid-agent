@@ -17,6 +17,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          # CI only reads the tree (build, vet, test, scan); it never
+          # pushes back. Don't leave the GITHUB_TOKEN in .git/config.
+          persist-credentials: false
 
       - uses: actions/setup-go@v7
         with:
