@@ -160,10 +160,10 @@ func (a *AuditLogger) Sign(label string, success bool, err error, peer Peer) {
 		return
 	}
 	// Write the line and its newline as one buffer; keep `line` pristine so its
-	// hash matches the bytes a verifier reads back.
-	out := make([]byte, 0, len(line)+1)
-	out = append(out, line...)
-	out = append(out, '\n')
+	// hash matches the bytes a verifier reads back. The full slice expression
+	// caps capacity at the length, so append must copy into a fresh array and
+	// can never write into `line`'s — no size arithmetic to overflow either.
+	out := append(line[:len(line):len(line)], '\n')
 	if _, wErr := a.w.Write(out); wErr != nil {
 		// Surface to stderr but keep serving — the audit log failing must
 		// never break SSH for the user.
