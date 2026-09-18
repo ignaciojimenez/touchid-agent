@@ -1,0 +1,63 @@
+name: CodeQL
+
+# Advanced setup, not GitHub's default. The default builds on Linux, and this
+# agent only compiles on macOS (cgo + a Swift Secure Enclave bridge): its Go
+# analysis failed and was silently dropped, leaving Ruby and Actions scanned and
+# the agent itself not at all. Here Go is built the way CI builds it.
+#
+# Findings reach the todo-harness sweep through the code-scanning alerts API;
+# nothing here notifies anyone.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, off the hour. Catches new queries against unchanged code.
+    - cron: "41 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Pinned like ci.yml: macos-latest can flip when GitHub rotates it.
+          - language: go
+            runner: macos-14
+            build-mode: manual
+          - language: actions
+            runner: ubuntu-latest
+            build-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      # The same build `make test` depends on: Swift bridge, then cgo.
+      - if: matrix.build-mode == 'manual'
+        run: make build
+
+      - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          category: /language:${{ matrix.language }}
