@@ -55,8 +55,12 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
 
       # The same build `make test` depends on: Swift bridge, then cgo.
+      # ARCH is passed, not detected: under CodeQL's tracer `uname -m` reports
+      # x86_64 on an arm64 runner, so the Makefile built the Swift bridge for
+      # x86_64 and the arm64 link failed. Taking it from Go keeps the two in
+      # step whatever the tracer does.
       - if: matrix.build-mode == 'manual'
-        run: make build
+        run: make build ARCH="$(go env GOARCH)"
 
       - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
