@@ -82,8 +82,10 @@ of #19's tamper-resistance story.
   current CI (`macos-14`) can build it; gate calls with
   `if #available(macOS 27, *)` **and** `isSupported`. Deployment target
   stays macOS 11. One universal artefact for brew and `.pkg`.
-- On macOS < 27 (or Intel Macs without a T2 — to verify in the spike)
-  attestation is simply unavailable; everything else behaves as today.
+- macOS 27 is Apple-silicon-only, so **Intel Macs never get
+  attestation** (they stay on macOS 26, with security updates for three
+  years). On macOS < 27 attestation is simply unavailable; everything
+  else behaves as today, and the universal binary keeps serving Intel.
 - **Fail closed where policy asks for it:** a `require_attestation`
   Managed Preference makes `-create` refuse to produce a key it can't
   attest. Default off, so older fleets aren't broken.
