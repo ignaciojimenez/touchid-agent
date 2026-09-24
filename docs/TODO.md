@@ -2,7 +2,7 @@
 
 ## Next
 
-- [ ] macOS 27 App Attest — spike whether a flat Developer-ID Mach-O can
+- [ ] macOS 27 App Attest (PER-84) — spike whether a flat Developer-ID Mach-O can
       use it, then key attestation + verifier. Proposal in
       [macos-27.md](macos-27.md).
 - [ ] Audit logging — document SIEM / off-host shipping as the durable
