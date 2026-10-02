@@ -18,7 +18,7 @@ jobs:
     # Pinned to a specific runner image so a `macos-latest` rotation can't
     # silently change the toolchain or signing behaviour mid-release. Bump
     # explicitly when retesting on a newer macOS version.
-    runs-on: macos-14
+    runs-on: macos-26
     permissions:
       contents: write
     timeout-minutes: 30
