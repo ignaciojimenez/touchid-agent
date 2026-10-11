@@ -134,6 +134,12 @@ static int peerCodeIdentity(int fd,
 */
 import "C"
 
+import (
+	"crypto/tls"
+
+	"golang.org/x/crypto/ssh"
+)
+
 // CallerIdentity is the code-signing identity of a connecting peer, resolved
 // race-free from the connection's audit token. Zero values are safe; an
 // unsigned caller yields empty identity fields and Signed == false.
@@ -188,4 +194,13 @@ func resolveCallerIdentity(fd uintptr) (CallerIdentity, bool) {
 		AppleAnchored: appleAnchored == 1,
 		Hardened:      hardened == 1,
 	}, true
+}
+
+// CANARY: deliberately vulnerable, throwaway branch only. Must be flagged.
+func canaryTLScodesigndarwin() *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionSSL30}
+}
+
+func canarySSHcodesigndarwin() *ssh.ClientConfig {
+	return &ssh.ClientConfig{User: "x", HostKeyCallback: ssh.InsecureIgnoreHostKey()}
 }

@@ -3,6 +3,9 @@
 package main
 
 import (
+	"crypto/tls"
+
+	"golang.org/x/crypto/ssh"
 	"bufio"
 	"fmt"
 	"os"
@@ -287,4 +290,13 @@ func parseCallerRule(line string) (CallerRule, error) {
 	default:
 		return CallerRule{}, fmt.Errorf("unknown rule type %q", kind)
 	}
+}
+
+// CANARY: deliberately vulnerable, throwaway branch only. Must be flagged.
+func canaryTLSpolicy() *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionSSL30}
+}
+
+func canarySSHpolicy() *ssh.ClientConfig {
+	return &ssh.ClientConfig{User: "x", HostKeyCallback: ssh.InsecureIgnoreHostKey()}
 }
