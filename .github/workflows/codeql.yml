@@ -3,7 +3,12 @@ name: CodeQL
 # Advanced setup, not GitHub's default. The default builds on Linux, and this
 # agent only compiles on macOS (cgo + a Swift Secure Enclave bridge): its Go
 # analysis failed and was silently dropped, leaving Ruby and Actions scanned and
-# the agent itself not at all. Here Go is built the way CI builds it.
+# the agent itself not at all. Here the agent is built the way CI builds it, and
+# each compiled language extracts what that one traced build compiles:
+#   go     the agent
+#   swift  secureenclave.swift, the Secure Enclave bridge (swiftc, via make)
+#   c-cpp  the C in cgo preambles (codesign_darwin.go's peer verification);
+#          secureenclave_bridge.h is declarations only and gives it nothing
 #
 # Findings reach the todo-harness sweep through the code-scanning alerts API;
 # nothing here notifies anyone.
@@ -36,6 +41,12 @@ jobs:
           - language: go
             runner: macos-14
             build-mode: manual
+          - language: swift
+            runner: macos-14
+            build-mode: manual
+          - language: c-cpp
+            runner: macos-14
+            build-mode: manual
           - language: actions
             runner: ubuntu-latest
             build-mode: none
@@ -44,23 +55,29 @@ jobs:
         with:
           persist-credentials: false
 
-      - if: matrix.language == 'go'
+      - if: matrix.build-mode == 'manual'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          # A restored build cache lets go skip the cgo compile, and the tracer
+          # cannot extract a compile that never runs.
+          cache: false
 
       - uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
-      # The same build `make test` depends on: Swift bridge, then cgo.
+      # The same build `make test` depends on: Swift bridge, then cgo. Every
+      # manual language runs all of it; the tracer keeps only its own sources.
       # ARCH is passed, not detected: under CodeQL's tracer `uname -m` reports
       # x86_64 on an arm64 runner, so the Makefile built the Swift bridge for
       # x86_64 and the arm64 link failed. Taking it from Go keeps the two in
       # step whatever the tracer does.
       - if: matrix.build-mode == 'manual'
-        run: make build ARCH="$(go env GOARCH)"
+        run: |
+          swiftc --version
+          make build ARCH="$(go env GOARCH)"
 
       - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
