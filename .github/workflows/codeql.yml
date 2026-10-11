@@ -3,7 +3,13 @@ name: CodeQL
 # Advanced setup, not GitHub's default. The default builds on Linux, and this
 # agent only compiles on macOS (cgo + a Swift Secure Enclave bridge): its Go
 # analysis failed and was silently dropped, leaving Ruby and Actions scanned and
-# the agent itself not at all. Here Go is built the way CI builds it.
+# the agent itself not at all. Here the agent is built the way CI builds it, and
+# each compiled language extracts what that one traced build compiles:
+#   go     the agent, cgo files included (see scripts/codeql-sarif.py)
+#   swift  secureenclave.swift, the Secure Enclave bridge (swiftc, via make)
+# No c-cpp: traced, it extracts only secureenclave_bridge.h (declarations, no
+# code), and a planted overflow in codesign_darwin.go's cgo preamble went
+# unflagged. It would be a green check covering nothing.
 #
 # Findings reach the todo-harness sweep through the code-scanning alerts API;
 # nothing here notifies anyone.
@@ -36,6 +42,9 @@ jobs:
           - language: go
             runner: macos-26
             build-mode: manual
+          - language: swift
+            runner: macos-26
+            build-mode: manual
           - language: actions
             runner: ubuntu-latest
             build-mode: none
@@ -44,24 +53,55 @@ jobs:
         with:
           persist-credentials: false
 
-      - if: matrix.language == 'go'
+      - if: matrix.build-mode == 'manual'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          # A restored build cache lets go skip compiles, and the tracer cannot
+          # extract a compile that never runs.
+          cache: false
 
       - uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
-      # The same build `make test` depends on: Swift bridge, then cgo.
+      # The same build `make test` depends on: Swift bridge, then cgo. Every
+      # manual language runs all of it; the tracer keeps only its own sources.
       # ARCH is passed, not detected: under CodeQL's tracer `uname -m` reports
       # x86_64 on an arm64 runner, so the Makefile built the Swift bridge for
       # x86_64 and the arm64 link failed. Taking it from Go keeps the two in
       # step whatever the tracer does.
+      #
+      # GOCACHE is in-tree because the Go extractor records each cgo file under
+      # its preprocessed copy's path in GOCACHE; outside the source root those
+      # results are dropped. scripts/codeql-sarif.py maps them back.
       - if: matrix.build-mode == 'manual'
-        run: make build ARCH="$(go env GOARCH)"
+        env:
+          GOCACHE: ${{ github.workspace }}/.cgo-cache
+        run: |
+          swiftc --version
+          make build ARCH="$(go env GOARCH)"
 
-      - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+      # Upload happens below, after the SARIF is post-processed.
+      - id: analyze
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
+          category: /language:${{ matrix.language }}
+          upload: never
+
+      # Maps cgo results to their source files, then fails unless every source
+      # file of the language was extracted: a green analysis that skipped files
+      # is indistinguishable from clean code, and the code-scanning API reports
+      # no file counts.
+      - env:
+          SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
+          LANGUAGE: ${{ matrix.language }}
+        run: python3 -I scripts/codeql-sarif.py "$SARIF_DIR" "$LANGUAGE"
+
+      # Upload even when the coverage check failed: the findings are still real.
+      - if: ${{ !cancelled() && steps.analyze.outcome == 'success' }}
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          sarif_file: ${{ steps.analyze.outputs.sarif-output }}
           category: /language:${{ matrix.language }}
