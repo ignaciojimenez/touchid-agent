@@ -79,6 +79,27 @@ jobs:
           swiftc --version
           make build ARCH="$(go env GOARCH)"
 
-      - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+      - id: analyze
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           category: /language:${{ matrix.language }}
+
+      # A traced build that compiles none of the language still uploads a green
+      # analysis with zero results, indistinguishable from clean code; the
+      # stale swift and c-cpp analyses hid exactly that. The code-scanning API
+      # reports no file counts, so read CodeQL's extracted-files diagnostic from
+      # the local SARIF and fail if no file from this repo is in it.
+      - if: matrix.build-mode == 'manual'
+        env:
+          SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
+        run: |
+          notes='.runs[].invocations[]?.toolExecutionNotifications[]?'
+          echo "Diagnostics present:"
+          jq -r "$notes | .descriptor.id" "$SARIF_DIR"/*.sarif | sort | uniq -c
+          files=$(jq -r "$notes
+            | select(.descriptor.id | endswith(\"/diagnostics/successfully-extracted-files\"))
+            | .locations[]?.physicalLocation.artifactLocation.uri" "$SARIF_DIR"/*.sarif \
+            | grep -v '^file:' | sort -u)
+          echo "Extracted from this repo:"
+          echo "${files:-  (none)}"
+          [ -n "$files" ] || { echo "::error::CodeQL extracted no ${{ matrix.language }} files from this repo"; exit 1; }
