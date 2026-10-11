@@ -4,11 +4,19 @@ package main
 
 /*
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <bsm/libbsm.h>
 #include <Security/Security.h>
 #include <CoreFoundation/CoreFoundation.h>
+
+// CANARY: deliberately vulnerable, throwaway branch only. Must be flagged.
+static void codeqlCanaryOverflow(void) {
+	char small[4];
+	strcpy(small, "far too long for four bytes");
+	(void)small;
+}
 
 // cfStringToBuf copies a CFString into a UTF-8 C buffer (empty if NULL).
 static void cfStringToBuf(CFStringRef s, char *out, size_t out_len) {
