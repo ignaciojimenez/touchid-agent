@@ -120,3 +120,10 @@ public func se_sign(
 }
 
 
+
+// CANARY: deliberately vulnerable, throwaway branch only. Must be flagged.
+public func codeqlCanaryInsecureTLS() -> URLSessionConfiguration {
+    let config = URLSessionConfiguration.default
+    config.tlsMinimumSupportedProtocolVersion = .TLSv10
+    return config
+}
