@@ -5,7 +5,7 @@ name: CodeQL
 # analysis failed and was silently dropped, leaving Ruby and Actions scanned and
 # the agent itself not at all. Here the agent is built the way CI builds it, and
 # each compiled language extracts what that one traced build compiles:
-#   go     the agent
+#   go     the agent, cgo files included (see scripts/codeql-sarif.py)
 #   swift  secureenclave.swift, the Secure Enclave bridge (swiftc, via make)
 # No c-cpp: traced, it extracts only secureenclave_bridge.h (declarations, no
 # code), and a planted overflow in codesign_darwin.go's cgo preamble went
@@ -72,32 +72,36 @@ jobs:
       # x86_64 on an arm64 runner, so the Makefile built the Swift bridge for
       # x86_64 and the arm64 link failed. Taking it from Go keeps the two in
       # step whatever the tracer does.
+      #
+      # GOCACHE is in-tree because the Go extractor records each cgo file under
+      # its preprocessed copy's path in GOCACHE; outside the source root those
+      # results are dropped. scripts/codeql-sarif.py maps them back.
       - if: matrix.build-mode == 'manual'
+        env:
+          GOCACHE: ${{ github.workspace }}/.cgo-cache
         run: |
           swiftc --version
           make build ARCH="$(go env GOARCH)"
 
+      # Upload happens below, after the SARIF is post-processed.
       - id: analyze
         uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           category: /language:${{ matrix.language }}
+          upload: never
 
-      # A traced build that compiles none of the language still uploads a green
-      # analysis with zero results, indistinguishable from clean code. The
-      # code-scanning API reports no file counts, so read CodeQL's
-      # extracted-files diagnostic from the local SARIF and fail if no file
-      # from this repo is in it.
-      - if: matrix.build-mode == 'manual'
-        env:
+      # Maps cgo results to their source files, then fails unless every source
+      # file of the language was extracted: a green analysis that skipped files
+      # is indistinguishable from clean code, and the code-scanning API reports
+      # no file counts.
+      - env:
           SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
-        run: |
-          notes='.runs[].invocations[]?.toolExecutionNotifications[]?'
-          echo "Diagnostics present:"
-          jq -r "$notes | .descriptor.id" "$SARIF_DIR"/*.sarif | sort | uniq -c
-          files=$(jq -r "$notes
-            | select(.descriptor.id | endswith(\"/diagnostics/successfully-extracted-files\"))
-            | .locations[]?.physicalLocation.artifactLocation.uri" "$SARIF_DIR"/*.sarif \
-            | grep -v '^file:' | sort -u)
-          echo "Extracted from this repo:"
-          echo "${files:-  (none)}"
-          [ -n "$files" ] || { echo "::error::CodeQL extracted no ${{ matrix.language }} files from this repo"; exit 1; }
+          LANGUAGE: ${{ matrix.language }}
+        run: python3 -I scripts/codeql-sarif.py "$SARIF_DIR" "$LANGUAGE"
+
+      # Upload even when the coverage check failed: the findings are still real.
+      - if: ${{ !cancelled() && steps.analyze.outcome == 'success' }}
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          sarif_file: ${{ steps.analyze.outputs.sarif-output }}
+          category: /language:${{ matrix.language }}
