@@ -13,3 +13,10 @@ updates:
       interval: weekly
     commit-message:
       prefix: "ci:"
+    groups:
+      # init, analyze and upload-sarif must run the same release; bumped one
+      # per PR, each fails on "Loaded a configuration file for version X, but
+      # running version Y".
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
