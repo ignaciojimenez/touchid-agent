@@ -7,8 +7,9 @@ name: CodeQL
 # each compiled language extracts what that one traced build compiles:
 #   go     the agent
 #   swift  secureenclave.swift, the Secure Enclave bridge (swiftc, via make)
-#   c-cpp  the C in cgo preambles (codesign_darwin.go's peer verification);
-#          secureenclave_bridge.h is declarations only and gives it nothing
+# No c-cpp: traced, it extracts only secureenclave_bridge.h (declarations, no
+# code), and a planted overflow in codesign_darwin.go's cgo preamble went
+# unflagged. It would be a green check covering nothing.
 #
 # Findings reach the todo-harness sweep through the code-scanning alerts API;
 # nothing here notifies anyone.
@@ -44,9 +45,6 @@ jobs:
           - language: swift
             runner: macos-14
             build-mode: manual
-          - language: c-cpp
-            runner: macos-14
-            build-mode: manual
           - language: actions
             runner: ubuntu-latest
             build-mode: none
@@ -59,8 +57,8 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # A restored build cache lets go skip the cgo compile, and the tracer
-          # cannot extract a compile that never runs.
+          # A restored build cache lets go skip compiles, and the tracer cannot
+          # extract a compile that never runs.
           cache: false
 
       - uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
@@ -85,10 +83,10 @@ jobs:
           category: /language:${{ matrix.language }}
 
       # A traced build that compiles none of the language still uploads a green
-      # analysis with zero results, indistinguishable from clean code; the
-      # stale swift and c-cpp analyses hid exactly that. The code-scanning API
-      # reports no file counts, so read CodeQL's extracted-files diagnostic from
-      # the local SARIF and fail if no file from this repo is in it.
+      # analysis with zero results, indistinguishable from clean code. The
+      # code-scanning API reports no file counts, so read CodeQL's
+      # extracted-files diagnostic from the local SARIF and fail if no file
+      # from this repo is in it.
       - if: matrix.build-mode == 'manual'
         env:
           SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
