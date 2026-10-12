@@ -40,9 +40,8 @@ jobs:
 
       - run: make test
 
-      # Scan for known-vulnerable transitive dependencies. Pinned to a
-      # specific version to keep the supply chain deterministic.
+      # Known vulns in dependencies and the stdlib of the toolchain go.mod
+      # declares. Fails only on ones the code reaches (exit 3). The version
+      # pin lives in the Makefile so local and CI scans match.
       - name: govulncheck
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-          "$(go env GOPATH)/bin/govulncheck" ./...
+        run: make vuln
