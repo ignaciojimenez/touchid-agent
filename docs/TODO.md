@@ -2,8 +2,8 @@
 
 ## Next
 
-- [ ] Audit logging — document SIEM / off-host shipping as the durable
-      tamper-resistance path (issue
+- [x] Audit logging — document SIEM / off-host shipping as the durable
+      tamper-resistance path ([audit-shipping.md](audit-shipping.md), 2026-10-12) (issue
       [#19](https://github.com/ignaciojimenez/touchid-agent/issues/19); the
       hash chain + `-verify-audit` shipped in v0.9.0). Forward-secure
       sealing is deferred, and the macOS unified log was evaluated and
