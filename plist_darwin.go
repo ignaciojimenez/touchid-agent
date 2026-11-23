@@ -259,6 +259,15 @@ func defaultLogPath() string { return filepath.Join(os.Getenv("HOME"), logRelPat
 // audit log used when -audit-log is not given.
 func defaultAuditLogPath() string { return filepath.Join(os.Getenv("HOME"), auditLogRelPath) }
 
+// ensurePrivateDir creates dir with mode 0700, tightening it if it already
+// exists (MkdirAll leaves an existing dir's mode alone).
+func ensurePrivateDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(dir, 0o700)
+}
+
 // resolveBinaryPath returns the path to use for ProgramArguments[0].
 // Prefers the existing plist's binary (so users on /opt/homebrew or
 // elsewhere are preserved); falls back to the running binary.
@@ -378,10 +387,13 @@ func cmdInstallPlist(plistPath, auditLogPath string, noReload bool) {
 	}
 	contents := renderPlist(binary, socketPath, logPath, extraArgs)
 
-	for _, dir := range []string{filepath.Dir(socketPath), filepath.Dir(logPath)} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			fatalf("mkdir %s: %v", dir, err)
-		}
+	// The socket dir is ours; keep it private like the keystore dir. The log
+	// dir is ~/Library/Logs, a standard shared dir left as is.
+	if err := ensurePrivateDir(filepath.Dir(socketPath)); err != nil {
+		fatalf("socket dir %s: %v", filepath.Dir(socketPath), err)
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		fatalf("mkdir %s: %v", filepath.Dir(logPath), err)
 	}
 	if err := writePlistAtomically(plistPath, contents); err != nil {
 		fatalf("write plist: %v", err)

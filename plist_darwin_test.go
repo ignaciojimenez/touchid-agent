@@ -472,3 +472,32 @@ func TestBackupPathFormat(t *testing.T) {
 		t.Errorf("timestamp length = %d, want 15 (got %q)", len(stamp), stamp)
 	}
 }
+
+func TestEnsurePrivateDir(t *testing.T) {
+	cases := map[string]bool{"missing": false, "existing 0755": true}
+	for name, preexisting := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "touchid-agent")
+			if preexisting {
+				// Chmod after Mkdir: the umask may already strip 0755 to 0700,
+				// which would make this case pass vacuously.
+				if err := os.Mkdir(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := ensurePrivateDir(dir); err != nil {
+				t.Fatalf("ensurePrivateDir: %v", err)
+			}
+			info, err := os.Stat(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := info.Mode().Perm(); got != 0o700 {
+				t.Errorf("mode = %o, want 700", got)
+			}
+		})
+	}
+}
